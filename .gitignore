@@ -3,12 +3,14 @@ output/
 
 # Credentials — must never be committed
 keys
+.env
+.env.*
+*.pem
+*service-account*.json
 
-# Node
-platform/frontend/node_modules/
-
-# Frontend build output (regenerated via npm run build)
-platform/frontend/dist/
+# Node (path-agnostic, so a node_modules/dist anywhere is caught, not just platform/frontend/)
+node_modules/
+dist/
 
 # Docker build data staging (created by prepare_deploy.sh)
 platform/data/
@@ -17,6 +19,12 @@ platform/data/
 __pycache__/
 *.pyc
 *.pyo
+.venv/
+venv/
+env/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
 
 # Jupyter
 .ipynb_checkpoints/
@@ -28,3 +36,12 @@ Thumbs.db
 # IDE
 .vscode/
 .idea/
+
+# Transient artifacts (logs, temp files, editor swap/backup) — anything whose
+# lifespan is a single task and which is never meant to be committed
+*.log
+*.tmp
+*.bak
+*.orig
+*.swp
+*~
