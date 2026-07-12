@@ -1,0 +1,78 @@
+name: Deploy Ugnay to Firebase Hosting
+
+# Ugnay is a static SPA + static data (tiles/boundaries). This workflow rebuilds
+# the frontend from the pushed source, pulls the (gitignored, ~180 MB) data
+# artifacts from GCS, stages them into dist/, and deploys to Firebase Hosting.
+#
+# Auth: a single service account (ugnay-deployer) does both jobs — reads the GCS
+# bucket AND deploys Hosting. Its JSON key is stored as the FIREBASE_SERVICE_ACCOUNT
+# repo secret.
+#
+# The data artifacts rarely change (only when the pipeline reruns), so they are
+# cached across runs; a UI-only push therefore skips the 173 MB GCS pull. When you
+# re-seed the bucket with new artifacts, bump the ARTIFACT_VERSION repo variable
+# (Settings -> Secrets and variables -> Actions -> Variables) to invalidate the cache.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'platform/frontend/**'
+      - 'platform/prepare_deploy.sh'
+      - 'firebase.json'
+      - '.firebaserc'
+      - '.github/workflows/deploy.yml'
+  workflow_dispatch: {}
+
+# Never let two deploys race; a newer push supersedes an in-flight one.
+concurrency:
+  group: hosting-deploy
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: platform/frontend/package-lock.json
+
+      - name: Authenticate to Google Cloud
+        id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+
+      - name: Setup gcloud
+        uses: google-github-actions/setup-gcloud@v2
+
+      # Cache the heavy, stable tiles/boundaries so UI-only pushes skip the GCS pull.
+      - name: Cache data artifacts
+        id: artifact-cache
+        uses: actions/cache@v4
+        with:
+          path: output
+          key: ugnay-artifacts-${{ vars.ARTIFACT_VERSION || 'v1' }}
+
+      - name: Pull tiles + boundaries from GCS
+        if: steps.artifact-cache.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p output/tiles output/boundaries
+          gcloud storage rsync -r gs://ecair-ugnay-tiles/tiles      output/tiles
+          gcloud storage rsync -r gs://ecair-ugnay-tiles/boundaries output/boundaries
+          echo "tiles: $(ls output/tiles | wc -l) files, boundaries: $(ls output/boundaries | wc -l) files"
+
+      # Reuse the repo's staging script: npm build + copy tiles/boundaries into dist/.
+      - name: Build frontend and stage artifacts
+        run: bash platform/prepare_deploy.sh
+
+      - name: Deploy to Firebase Hosting
+        run: npx --yes firebase-tools@15 deploy --only hosting --project ecair-eics-project --non-interactive
+        env:
+          GOOGLE_APPLICATION_CREDENTIALS: ${{ steps.auth.outputs.credentials_file_path }}

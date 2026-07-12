@@ -37,6 +37,9 @@ Thumbs.db
 .vscode/
 .idea/
 
+# Firebase deploy cache
+.firebase/
+
 # Transient artifacts (logs, temp files, editor swap/backup) — anything whose
 # lifespan is a single task and which is never meant to be committed
 *.log

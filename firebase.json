@@ -1,0 +1,14 @@
+{
+  "hosting": {
+    "site": "ecair-eics-project",
+    "public": "platform/frontend/dist",
+    "ignore": ["firebase.json", "**/.*", "**/node_modules/**"],
+    "rewrites": [
+      { "source": "**", "destination": "/index.html" }
+    ],
+    "headers": [
+      { "source": "/boundaries/**", "headers": [{ "key": "Cache-Control", "value": "no-cache" }] },
+      { "source": "/tiles/**", "headers": [{ "key": "Cache-Control", "value": "no-cache" }] }
+    ]
+  }
+}
