@@ -1,287 +1,72 @@
-# project_ugnay — Philippine School Connectivity Network
+# Ugnay — Philippine Cross-Sector Education Access Map
 
 **"Ugnay"** means *connection* in Filipino.
 
-A nationwide school-to-school road distance network for ~56K Philippine schools, with per-school accessibility metrics. Built on top of the unified coordinates from [project_coordinates](../project_coordinates).
+Ugnay is a map-based planning tool that shows what a learner can actually **reach** across the three sectors of Philippine education — basic education (DepEd), higher education (CHED), and technical-vocational (TESDA) — measured by real **road distance**, not straight lines.
 
-## Problem
+## Why
 
-DepEd has coordinates for ~56K schools, but no way to answer basic connectivity questions at scale:
+The country has coordinates for roughly 66,000 education institutions, but they live in three separate agencies and no tool answers the question a planner actually asks: *from a given place, what is within reach — and where does the pathway break?*
 
-- Which public schools have no private school within a reasonable road distance?
-- Which areas are ESC deserts — communities where no ESC-participating school is accessible?
-- Which schools are genuinely isolated by geography, versus those that just appear remote on a flat map?
+- A senior high school with no college or TESDA provider nearby is a **dead end** for its graduates, even if the school itself looks fine on a map.
+- Straight-line distance flatters reality. In an archipelago, a school "3 km away" across a strait or ridge can be 30 km by road — and only **53%** of institution pairs within 5 km as the crow flies are still within 5 km once you drive it.
+- Locating institutions is already solved (by *Piring*). Ugnay's distinct contribution is **connectivity**: what connects to what, across sector boundaries.
 
-Straight-line (haversine) distances mislead in archipelagic terrain — a school 3 km away across a mountain or strait may be 30 km by road. A road-based network is required.
+**Who it's for:** central- and regional-office planners at DepEd, CHED, and TESDA — domain experts, but **not** GIS or data specialists. Ugnay is a cross-agency situational-awareness tool, not a consumer app, so its language stays plain and its interaction stays simple.
 
-## Solution
+## What it does
 
-Two phases, both complete:
+- **Pick an area** the way a planner thinks — region → provinces → cities/municipalities.
+- **See every institution** on the map, colored by sector (DepEd public/private, CHED public/private, TESDA), with administrative borders for context.
+- **Click one** to see everything reachable within a **road-distance threshold** (a 1–5 km slider) that offers something it doesn't — plus a detail panel with the nearest institution of each education level.
+- **Toggle Gap Analysis** to halo institutions that can't reach their next level within reach (amber = exists but too far; red = nothing nearby) — the first, honest glimpse of *progression* gaps.
 
-### Phase 1 — Sparse Edge Network
+The deeper goal is educational **progression** — tracing whether a learner can move ES → JHS → SHS → HEI/TESDA without hitting a wall. The current build surfaces the accessibility half of that story; the progression-pathway rendering is designed and deferred to after the first demo.
 
-Computes road distances between every pair of schools within a 20 km road cutoff using the OSRM routing engine. Processes all 18 DepEd regions independently with a 30 km haversine pre-filter (KDTree) to avoid sending unnecessary pairs to OSRM, then stitches cross-region boundary edges.
+## How it works
 
-**Output:** 9.88M directed edges across 55,864 schools (128 MB Parquet).
+A batch pipeline turns four coordinate datasets into small per-area map tiles the web app loads directly. There is **no live backend** — the app is static files plus precomputed data, which keeps it cheap to host and simple to reason about.
 
-### Phase 2 — Accessibility Metrics
-
-Derives per-school accessibility metrics from the edge table: neighbor counts at distance bands, nearest private/ESC/JHS/SHS school, desert flags, and an isolation score. Aggregates to municipal, provincial, and regional summaries.
-
-**Output:** `school_accessibility.parquet` (55,864 rows, 30+ columns) + 3 admin-level summary files.
-
-## Key Findings
-
-| Metric | Value |
+| Stage | What it does |
 |---|---|
-| Schools with road connectivity | 99% (55,157 / 55,864) |
-| Isolated schools | 707 (geography or OSM gap) |
-| Private deserts (no private school within 10 km road) | 30.8% of schools |
-| ESC deserts (no ESC school within 10 km road) | 40.6% of schools |
-| Median distance to nearest private school | 4.0 km |
-| Median distance to nearest ESC school | 5.2 km |
+| **S1** | Assemble ~66K institutions from the four sectors into one table with capability tokens (offers ES/JHS/SHS, is HEI, is TESDA trainer/assessor). |
+| **S2 / S2b** | Route distances through **OSRM** (OpenStreetMap road network). `S2b` computes door-to-door road distance for every pair within reach — the numbers the map draws. |
+| **S3 / S4** | Derive progression edges and per-institution / per-area gap metrics. |
+| **S6** | Slice everything into one JSON tile per municipality (+ an area index and cleaned admin boundaries) — the served artifact. |
 
-## Data Sources
+The frontend is a **Vite + React + MapLibre** app that reads those tiles. Every distance it shows is a precomputed road distance; institutions plotted off the road network are flagged so a bad coordinate never masquerades as a real gap.
 
-| Source | Description |
-|---|---|
-| `project_coordinates/data/gold/public_school_coordinates.parquet` | 47,607 public schools with validated coordinates |
-| `project_coordinates/data/gold/private_school_coordinates.parquet` | 8,257 private schools with reliable coordinates |
-| OSRM (car profile) | Road routing engine backed by OpenStreetMap Philippines |
+Roughly 66,000 institutions: ~47.6K DepEd public, ~8.3K DepEd private, ~2.4K CHED campuses, ~7.9K TESDA centers.
 
-Schools are excluded if their `coord_rejection_reason` indicates a bogus coordinate (placeholder default, coordinate cluster, outside all land polygons, etc.). See [project_coordinates](../project_coordinates) for the full coordinate quality pipeline.
-
-## Output
-
-### Edges (`output/edges/`)
-
-| File | Description |
-|---|---|
-| `all_edges.parquet` | 9.88M directed edges, combined across all regions |
-| `region_*.parquet` | Per-region edge files (18 files) |
-| `cross_region_pairs.parquet` | Edges crossing regional boundaries |
-| `schools_unified_snapshot.parquet` | Coordinate snapshot used for this run |
-| `_manifest.json` | Run parameters, statistics, and file listing |
-
-**Edge schema:**
-
-| Column | Type | Description |
-|---|---|---|
-| `source_id` | str | Origin school ID |
-| `target_id` | str | Destination school ID |
-| `road_distance_m` | float32 | OSRM road distance in meters |
-| `haversine_distance_m` | float32 | Great-circle distance in meters |
-| `road_haversine_ratio` | float32 | Detour factor (road / haversine) |
-| `source_region` | str | DepEd region of the source school |
-| `is_cross_region` | bool | Source and target in different regions |
-| `is_sea_separated` | bool | Within haversine cutoff but no road route |
-
-### Metrics (`output/metrics/`)
-
-`school_accessibility.parquet` — one row per school, 30+ columns including:
-
-- `n_neighbors_5km`, `n_neighbors_10km`, `n_neighbors_20km` — school count at distance bands
-- `nearest_private_km`, `nearest_esc_km` — road distance to nearest private / ESC school
-- `private_desert`, `esc_desert` — boolean flags (no private/ESC within 10 km road)
-- `nearest_jhs_km`, `jhs_desert`, `nearest_shs_km`, `shs_desert` — feeder-level connectivity
-- `isolation_score` — weighted inverse of neighbor density (0 = connected, 1 = isolated)
-- `feeder_isolation_score` — isolation accounting for school level (ES → JHS → SHS)
-- `osrm_status` — `computed` / `osrm_failed` / `not_attempted`
-
-### Aggregations (`output/aggregations/`)
-
-| File | Rows | Description |
-|---|---|---|
-| `municipal_summary.parquet` | 1,707 | Per-municipality accessibility summary |
-| `provincial_summary.parquet` | 127 | Per-province summary |
-| `regional_summary.parquet` | 18 | Per-region summary |
-
-### Dense Matrix (`output/dense_matrix/`)
-
-| File | Description |
-|---|---|
-| `school_distance_matrix.npy` | Dense N×N distance matrix (float32, meters) |
-| `school_distance_matrix_index.json` | School ID → matrix index mapping |
-
-Built from the sparse edge table for downstream consumers (e.g., project_paaral) that require O(1) pair lookup. Only covers school pairs within the 20 km road cutoff; all other pairs are 0.
-
-All outputs are also uploaded to GCS at `gs://data_ecair_paaral/ugnay/v1/`. Public copies of the edges and metrics are available on [Google Drive](https://drive.google.com/drive/folders/1JMkZT5PXGptlMNY3qLQEDl9ndi1JdZjM?usp=sharing).
-
-## Usage
-
-If you only need the precomputed outputs, download them from [Google Drive](https://drive.google.com/drive/folders/1JMkZT5PXGptlMNY3qLQEDl9ndi1JdZjM?usp=sharing) and skip to [Distance lookup](#distance-lookup-programmatic). The steps below are for recomputing from scratch.
-
-### Prerequisites
-
-**Python 3.11+** with the following packages:
-
-```bash
-pip install pandas pyarrow numpy scipy geopandas requests gcsfs tqdm
-```
-
-**OSRM** is required only for Phase 1 (computing road distances). If you are using the precomputed edge files, you do not need OSRM.
-
-#### Setting up OSRM
-
-OSRM must be running locally before executing Phase 1. The quickest way is via Docker using the official OSRM backend image.
-
-```bash
-# 1. Download the Philippines OSM extract
-wget https://download.geofabrik.de/asia/philippines-latest.osm.pbf
-
-# 2. Pre-process the road network (car profile)
-docker run -t -v "$(pwd):/data" ghcr.io/project-osrm/osrm-backend \
-  osrm-extract -p /opt/car.lua /data/philippines-latest.osm.pbf
-
-docker run -t -v "$(pwd):/data" ghcr.io/project-osrm/osrm-backend \
-  osrm-partition /data/philippines-latest.osrm
-
-docker run -t -v "$(pwd):/data" ghcr.io/project-osrm/osrm-backend \
-  osrm-customize /data/philippines-latest.osrm
-
-# 3. Start the OSRM routing server
-docker run -t -i -p 5000:5000 -v "$(pwd):/data" ghcr.io/project-osrm/osrm-backend \
-  osrm-routed --algorithm mld /data/philippines-latest.osrm
-```
-
-OSRM will be available at `http://localhost:5000`. The pre-processing steps (2) are one-time and take ~15–30 minutes depending on hardware. Keep the server running while executing Phase 1 scripts.
-
-### Phase 1 — Compute sparse edges
-
-Run from the project root. Pass `--osrm-url http://localhost:5000/table/v1/driving/` to point at your local OSRM instance.
-
-```bash
-# Full run — all 18 regions, cross-region edges, finalize (no GCS upload)
-python scripts/run_region_batch.py --all --cross-region --finalize \
-  --osrm-url http://localhost:5000/table/v1/driving/ --no-upload
-
-# Specific regions only
-python scripts/run_region_batch.py "Region IV-A" "NCR" \
-  --osrm-url http://localhost:5000/table/v1/driving/ --no-upload
-
-# Force re-run even if output files already exist
-python scripts/run_region_batch.py --all --cross-region --finalize --force \
-  --osrm-url http://localhost:5000/table/v1/driving/ --no-upload
-```
-
-Estimated runtime: ~30 minutes for a full nationwide run.
-
-### Phase 2 — Compute metrics
-
-No OSRM required — reads the edge files produced by Phase 1.
-
-```bash
-python scripts/run_metrics.py --no-upload
-```
-
-### Validate edges
-
-```bash
-python scripts/validate_edges.py
-```
-
-Runs 5 checks: road ≥ haversine, distance symmetry, triangle inequality, distribution stability, and road/haversine ratio distribution.
-
-### Build dense matrix
-
-Builds a dense N×N `.npy` distance matrix for a subset of regions. Useful for downstream projects that require O(1) pair lookup.
-
-```bash
-# Example: NCR + Region III + Region IV-A
-python scripts/build_dense_matrix.py \
-  --regions "NCR" "Region III" "Region IV-A" \
-  --osrm-url http://localhost:5000/table/v1/driving/
-
-# List available regions
-python scripts/build_dense_matrix.py --list
-
-# Dry run (shows school count and estimated size without computing)
-python scripts/build_dense_matrix.py --regions "NCR" "Region III" "Region IV-A" --dry-run
-```
-
-### Distance lookup (programmatic)
-
-```python
-from modules.distance_lookup import DistanceLookup
-
-dist = DistanceLookup.from_parquet("output/edges/all_edges.parquet")
-
-# Single pair (returns meters, or None if no edge within the 20 km cutoff)
-dist.get("136718", "320102")
-
-# All neighbors within radius
-dist.get_neighbors("136718", max_m=5000)
-
-# Batch lookup
-dist.get_many([("136718", "320102"), ("136718", "130001")])
-```
-
-## Project Structure
+## Repository layout
 
 ```
-project_ugnay/
-├── modules/
-│   ├── coordinates.py           # Load & merge public/private school coords from project_coordinates
-│   ├── osrm_client.py           # Batched OSRM Table API with sub-batching and retry logic
-│   ├── sparse_edges.py          # Region-by-region edge computation with KDTree haversine pre-filter
-│   ├── inter_island.py          # Island group tagging (Luzon/Visayas/Mindanao) + sea-separation
-│   ├── accessibility_metrics.py # Per-school metrics: neighbor counts, desert flags, isolation score
-│   ├── aggregation.py           # Admin-level (municipal/provincial/regional) aggregations
-│   ├── distance_lookup.py       # O(1) distance lookup from sparse edge table
-│   └── gcs_utils.py             # GCS bucket paths and upload utilities
-├── scripts/
-│   ├── run_region_batch.py      # Phase 1 CLI entry point
-│   ├── run_metrics.py           # Phase 2 CLI entry point
-│   ├── validate_edges.py        # Edge validation suite
-│   ├── dissolve_municipal_boundaries.py  # Generate dissolved admin boundary GeoJSON
-│   └── build_dense_matrix.py    # Build dense N×N .npy matrix from sparse edges
-├── notebooks/
-│   ├── 1.0-reference-pipeline-walkthrough.ipynb
-│   ├── 1.1-validate-edges.ipynb
-│   └── 2.0-validate-metrics.ipynb
-├── output/
-│   ├── edges/                   # Phase 1 outputs (~253 MB)
-│   ├── metrics/                 # Phase 2 per-school metrics (~5.5 MB)
-│   ├── aggregations/            # Phase 2 admin summaries (~344 KB)
-│   └── dense_matrix/            # Dense distance matrix (~546 MB)
-├── documentation/
-│   ├── plan.md                  # Overall design and phase roadmap
-│   ├── phase_1_sparse_edge_network.md
-│   ├── phase_2_accessibility_metrics.md
-│   └── osrm_edge_computation.md # OSRM troubleshooting and technical notes
-└── keys -> ../paaral_eda/keys   # Symlink to GCS service account credentials
+scripts/         Pipeline stages (s1…s6, s2b, boundary cleaning)
+modules/         Shared pipeline logic (OSRM client, distance lookup, aggregation)
+platform/frontend/   The web app (Vite + React + MapLibre)
+documentation/   Design and decision records (see below)
+output/          Generated data — tiles, boundaries, matrices (gitignored)
 ```
 
 ## Documentation
 
-- **[Plan](documentation/plan.md)** — full design, decisions, and verification checkpoints
-- **[Phase 1: Sparse Edge Network](documentation/phase_1_sparse_edge_network.md)** — pipeline design, OSRM batching strategy, edge schema, and statistics
-- **[Phase 2: Accessibility Metrics](documentation/phase_2_accessibility_metrics.md)** — metric definitions, aggregation logic, and key findings
-- **[OSRM Edge Computation Notes](documentation/osrm_edge_computation.md)** — URL length limits, sub-batching fix, retry logic, and known gaps in OSM coverage
+The design rationale lives in `documentation/`:
 
-## Known Limitations
+- **[SPECS.md](documentation/SPECS.md)** — product and engineering decisions, with the reasoning preserved as a Q&A record.
+- **[pipeline_implementation_plan.md](documentation/pipeline_implementation_plan.md)** — the S1–S6 pipeline, tile schema, and build sequence.
+- **[frontend_design.md](documentation/frontend_design.md)** — the map's interaction model, accessibility semantics, and round-by-round change log.
 
-- **OSRM car profile only.** Walking distances are more relevant for elementary school catchments but deferred due to OSM footway coverage gaps.
-- **No sea routing.** OSRM does not model ferry routes. Island schools with no road connection appear isolated; this is the correct signal for inter-island separation, but ferry-accessible schools are indistinguishable from genuinely isolated ones.
-- **589 schools not attempted.** A small number of schools appear only in OSRM batches that failed at the sub-batch level and were not retried at the individual level. These are likely schools whose coordinates snap to disconnected road segments.
-- **2 schools OSRM-failed.** Failed even at single-coordinate retry — coordinates cannot snap to any OSM road.
-- **20 km cutoff.** Pairs beyond 20 km road distance are not in the edge table and return no distance (not "infinite" — simply absent). Downstream consumers should treat absence as "no edge computed, not necessarily unreachable."
+## Status
 
-## See Also
+Targeting an internal demo (**July 2026**) on a nationwide dataset. The pipeline and frontend run end-to-end against real data; public deployment is the next step.
 
-- **[project_coordinates](../project_coordinates)** — the unified school coordinate pipeline that feeds this project
-- **[project_paaral](../project_paaral)** — student flow modeling using this distance network
+The previous single-sector build (a DepEd-only school connectivity network with an edge/metrics/dense-matrix focus) is preserved on the **`old_build`** branch.
 
-## AI Disclosure
+## See also
 
-This project was developed with substantial assistance from **Claude** (Anthropic), used as a collaborative coding and technical writing partner throughout the project lifecycle. AI was used for:
+- **[project_coordinates](../project_coordinates)** — the coordinate pipeline that feeds Ugnay all four sectors.
+- **[project_paaral](../project_paaral)** — student-flow modeling that consumes this distance network.
 
-- **Architecture design** — iterating on the sparse-vs-dense tradeoff, haversine pre-filter strategy, regional batching approach, and cross-region boundary handling
-- **Code implementation** — writing all Python modules and CLI scripts
-- **OSRM troubleshooting** — diagnosing URL length limits (HTTP 400 on large regions), designing the sub-batching fix, and implementing retry logic (500 → 100 → 20 → 1)
-- **Data quality** — identifying bogus placeholder coordinates in the private school dataset and propagating the upstream fix into the coordinates filter
-- **Metric design** — defining isolation score, feeder-level metrics, and desert flag thresholds
-- **Validation** — authoring the edge validation suite and interpreting known failure modes
-- **Documentation** — drafting all phase design documents, technical notes, and this README
+## AI disclosure
 
-All design decisions, domain context (DepEd administrative structure, ESC program mechanics, island geography), and data interpretation were directed by the human author. The AI did not have independent access to external systems or make unsupervised decisions about data handling.
+Developed with substantial assistance from **Claude** (Anthropic) as a coding and technical-writing partner — pipeline and frontend implementation, design iteration, and documentation. All domain judgment (DepEd/CHED/TESDA structure, what a planner needs, how to read the data) was directed by the human author.
