@@ -43,6 +43,19 @@ Stakeholder decision while reviewing the working platform:
 
 The pipeline emits an `HEI_TESDA_prov` ("reskilling") transition, but the frontend **ignores it**: HEIs radiate no edges and are never gap-flagged. This narrows §2.1's edge set for the demo. Revisit post-demo.
 
+### A4 — Node grammar is SHAPE + fill; mobile is a distinct chrome; one accessibility rule is now committed (2026-07-12) — **refines §3.5**
+
+Three decisions taken while making the deployed platform usable on a phone.
+
+**1. Sector is encoded twice — shape *and* fill.** Colour alone fails in greyscale print and under colour-vision deficiency, where the five fills can collapse into two or three. Nodes now carry a **shape** as a redundant channel (circle / square / triangle / diamond), user-settable per swatch. The default carries meaning rather than decoration: **shape = sector** (DepEd ○ · higher-ed △ · TESDA □), **fill = public/private within it**. The colorblind (Okabe–Ito) preset remains.
+- This does **not** revive the round-1 *arc grammar*, which was rejected as too noisy: arcs encoded **capabilities** (up to three sub-levels per pin). Shape encodes the **sector** — five buckets, readable at a glance, no extra marks on the pin. Capabilities remain filters, not glyphs.
+- Implementation and its two silent failure modes (SDF encoding; `setStyle` dropping every added image on each basemap switch) → `frontend_design.md` §3.
+
+**2. §3.5's "mobile-first" is now actually met.** It had been asserted, not built: the phone view was the desktop view at 390px — the top bar's controls ran off the right edge and two floating panels covered the map. Mobile (<640px) is now a **different chrome, not a smaller one**: a slim header; the sector toggles, gap analysis and basemap moved into **one bottom sheet** (collapsed by default, so the map is unobstructed on arrival); the Legend is a tab inside it; the detail view is a **full-width bottom sheet** and the map pans **up** to clear it. → `frontend_design.md` §6A.
+- **The map attribution must remain visible** (CARTO / OSM / Esri require it) — it is lifted clear of the sheet along with the zoom controls. This is a licensing constraint, not a cosmetic one.
+
+**3. §3.5 says accessibility is "not committed (open)". One rule is now committed:** *no `aria-hidden` container may contain focusable controls.* A collapsed panel that is merely clipped keeps its checkboxes and buttons in the tab order and the a11y tree, so a keyboard or screen-reader user lands inside a panel that, as far as they've been told, does not exist. All collapsibles and the closed detail drawer are `inert`. Enforced by test T1.2. `prefers-reduced-motion` is also honoured. Broader accessibility remains open. → `frontend_design.md` §6B.
+
 ---
 
 ## 1. Product & UX
@@ -364,6 +377,8 @@ Deployment target, hosting, CI/CD, and cost are deferred to a separate ops docum
 - **Mobile-first responsive** — designed for phones first, scaling to desktop.
 - **Modern browsers only** — current Chrome/Safari/Edge/Firefox; no legacy support.
 - **Accessibility: not a committed MVP requirement.** Neither basic-a11y nor WCAG AA was selected. Recorded as an **open consideration** (government platforms sometimes require WCAG AA) — to revisit, but not a v1 gate.
+
+> ⚠️ **AMENDED (A4, 2026-07-12).** "Mobile-first" had been *asserted, not built* — the phone view was the desktop view at 390px. Mobile is now a **distinct chrome** (bottom sheet, slim header, bottom-sheet detail), not a scaled-down desktop. And accessibility is no longer wholly open: **one rule is committed and test-enforced** — *no `aria-hidden` container may contain focusable controls*. See Amendments §A4.
 
 **Q:** Telemetry?
 **A:** **Basic anonymous usage analytics** — lightweight, privacy-reviewed (areas viewed, features used) to learn how planners use the tool. Implementation specifics coordinate with the ops document.

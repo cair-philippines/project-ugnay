@@ -17,9 +17,10 @@ The country has coordinates for roughly 66,000 education institutions, but they 
 ## What it does
 
 - **Pick an area** the way a planner thinks — region → provinces → cities/municipalities.
-- **See every institution** on the map, colored by sector (DepEd public/private, CHED public/private, TESDA), with administrative borders for context.
+- **See every institution** on the map, encoded by sector **twice over** — by **shape** (DepEd ○ · higher-ed △ · TESDA □) and by **fill** (public vs private within each) — so the map still reads in greyscale and under colour-vision deficiency. Both are user-customisable, with a colorblind-safe preset. Administrative borders give context.
 - **Click one** to see everything reachable within a **road-distance threshold** (a 1–5 km slider) that offers something it doesn't — plus a detail panel with the nearest institution of each education level.
 - **Toggle Gap Analysis** to halo institutions that can't reach their next level within reach (amber = exists but too far; red = nothing nearby) — the first, honest glimpse of *progression* gaps.
+- **Works on a phone**, where planners actually are: the map is full-bleed and unobstructed, with the controls in a bottom sheet you opt into.
 
 The deeper goal is educational **progression** — tracing whether a learner can move ES → JHS → SHS → HEI/TESDA without hitting a wall. The current build surfaces the accessibility half of that story; the progression-pathway rendering is designed and deferred to after the first demo.
 
@@ -44,6 +45,8 @@ Roughly 66,000 institutions: ~47.6K DepEd public, ~8.3K DepEd private, ~2.4K CHE
 scripts/         Pipeline stages (s1…s6, s2b, boundary cleaning)
 modules/         Shared pipeline logic (OSRM client, distance lookup, aggregation)
 platform/frontend/   The web app (Vite + React + MapLibre)
+tests/e2e/       Playwright runner for TESTS.md (41 browser scenarios)
+.github/workflows/   Push-to-`main` deploys the frontend to Firebase Hosting
 documentation/   Design and decision records (see below)
 output/          Generated data — tiles, boundaries, matrices (gitignored)
 ```
@@ -52,13 +55,21 @@ output/          Generated data — tiles, boundaries, matrices (gitignored)
 
 The design rationale lives in `documentation/`:
 
-- **[SPECS.md](documentation/SPECS.md)** — product and engineering decisions, with the reasoning preserved as a Q&A record.
+- **[SPECS.md](documentation/SPECS.md)** — product and engineering decisions, with the reasoning preserved as a Q&A record. **Read the Amendments block first** — it overrides parts of the body.
 - **[pipeline_implementation_plan.md](documentation/pipeline_implementation_plan.md)** — the S1–S6 pipeline, tile schema, and build sequence.
-- **[frontend_design.md](documentation/frontend_design.md)** — the map's interaction model, accessibility semantics, and round-by-round change log.
+- **[frontend_design.md](documentation/frontend_design.md)** — the map's interaction model, node grammar, mobile design, and round-by-round change log.
+- **[deployment.md](documentation/deployment.md)** — the as-built deployment runbook: architecture, the Firebase pitfalls we hit, CI, and how to deploy / re-seed / roll back / verify.
+
+At the repo root:
+
+- **[TESTS.md](TESTS.md)** — the end-to-end test scenarios, and the traps that make map tests silently lie. Run them with `cd tests/e2e && npm install && npm run test:prod`.
+- **[CHANGELOG.md](CHANGELOG.md)** — what changed, per deploy.
 
 ## Status
 
-Targeting an internal demo (**July 2026**) on a nationwide dataset. The pipeline and frontend run end-to-end against real data; public deployment is the next step.
+**Live** at **https://ecair-eics-project.web.app** (Firebase Hosting; custom domain `ugnay.cair.ph` pending). A push to `main` that touches the frontend rebuilds and redeploys automatically — see `documentation/deployment.md`.
+
+The pipeline and frontend run end-to-end against the nationwide dataset, ahead of an internal demo (**July 2026**).
 
 The previous single-sector build (a DepEd-only school connectivity network with an edge/metrics/dense-matrix focus) is preserved on the **`old_build`** branch.
 

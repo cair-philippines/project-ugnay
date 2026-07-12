@@ -354,6 +354,33 @@ Use a small, dense area for speed (e.g. a single municipality) and one large one
 
 **Expected:** Pins, edges (destination color), and the Legend all update live. The colorblind toggle swaps to the Okabe–Ito palette; toggling off restores the defaults.
 
+> Assert on **`icon-color`**, not `circle-color`: the node layers are **symbol** layers (see T9.5). A test still reading `circle-color` compares `undefined` to `undefined` and passes while testing nothing.
+
+---
+
+### T9.5 Per-sector node shapes
+**Steps:**
+1. Appearance tab → each sector row has a colour swatch, a label, and a row of four shape toggles (circle / square / triangle / diamond).
+2. Set **DepEd Public** to **diamond**.
+
+**Expected:**
+- All four SDF images are registered: `map.hasImage("ugnay-shape-<shape>")` is true for each.
+- The `icon-image` layout expression changes and now references the diamond.
+- Nodes still render (a missing icon renders **nothing**, silently).
+- The Legend's marks change with it — the legend must not claim a shape the map isn't drawing.
+
+**Defaults (shape = sector, fill = public/private within it):** DepEd ○ · Higher-ed △ · TESDA □.
+
+---
+
+### T9.6 Shape images survive a basemap switch (regression)
+**Why:** `setStyle` — i.e. **every basemap switch** — throws away all images the app added. react-map-gl re-adds our sources and layers, but **not** our images. Without re-registering them on `style.load`, the symbol layers reference missing icons and **every institution silently disappears** on the first switch. This is invisible to any check that only asserts "the layer still exists".
+
+**Steps:**
+1. Switch to **satellite**, then back to **plain**.
+
+**Expected:** `hasImage` is still true for all four shapes after each switch, and `queryRenderedFeatures` on the node layers is still > 0.
+
 ---
 
 ## T10 — Map Controls (new — 2026-07-12)
@@ -474,6 +501,69 @@ curl -s -o /dev/null -w "%{http_code} %{content_type}\n" \
 
 ---
 
+## T14 — Mobile (390×844) — SPECS §3.5 "mobile-first"
+
+Mobile is a **different chrome**, not a shrunken desktop: a slim header, one bottom sheet, and a bottom-sheet detail view. Run these in a phone context (`isMobile: true, hasTouch: true`). The breakpoint is `max-width: 639px`, shared by JS (`lib/useIsMobile.js`) and CSS — if they ever disagree you get a bottom sheet laid out for a desktop drawer.
+
+### T14.1 The primary action is reachable without scrolling
+**Steps:**
+1. Load the app. Note the position of **Explore map →**.
+2. Choose a region — the province list appears and the card grows.
+
+**Expected:** The button is on screen **both times** (the card is a flex column with a pinned footer). It must have a ≥40px tap target.
+
+**What to check if broken:** if the whole card is one scroll box again, the button drops below the fold behind a nested scroll — you have to go looking for the primary action.
+
+---
+
+### T14.2 The first hint names the first action
+**Expected:** With no region chosen the hint reads **"Pick a region"** (and the footer, "Choose a region to begin."). It must **not** read "Pick at least one province" — there are no provinces to pick until a region is chosen.
+
+---
+
+### T14.3 Header does not overflow; the controls live in the sheet
+**Expected:**
+- `header.scrollWidth <= header.clientWidth` (nothing clipped off the right edge) and the page body never scrolls horizontally.
+- The header contains **only** the wordmark and "← Change area". **Gap analysis and the basemap buttons are NOT in it** — they moved into the sheet.
+- Exactly one `.ugnay-sheet` exists.
+
+---
+
+### T14.4 The sheet is COLLAPSED by default
+**Expected:** The sheet body has zero height on arrival and only its handle shows (~44px), leaving **~94% of the map visible**. The point of the sheet is an unobstructed map; an auto-open sheet would defeat it.
+
+---
+
+### T14.5 The sheet's contents
+**Steps:** Tap the handle.
+
+**Expected:** It rolls open to **≤70vh** (never swallowing the map) with three tabs — **Filters · Appearance · Legend** — and contains the controls that live in the desktop header: **Sectors**, **Basemap**, **Gap analysis**. The **Legend** tab shows the sector key (it is a tab, not a second floating panel — two bottom-anchored panels would fight for the same corner).
+
+---
+
+### T14.6 Zoom +/- and the attribution clear the sheet
+**Steps:** With the sheet collapsed, measure the zoom block and the attribution against the sheet's top edge, then click zoom **+**.
+
+**Expected:**
+- Both sit **above** the sheet, and `elementFromPoint` at the zoom-in's centre returns the **zoom button** — not the sheet or the control stack.
+- The custom control stack still clears the zoom block (the T10.4 gap).
+- Zoom **+** actually changes `map.getZoom()`.
+
+**Why the attribution matters:** CARTO / OSM / Esri **require it to be visible**. Leaving it buried under the sheet is a licensing problem, not a cosmetic one.
+
+---
+
+### T14.7 Tapping a node opens a BOTTOM sheet and pans the map UP
+**Steps:** Tap a node low on the screen (but above the collapsed sheet — a node *under* the sheet can't be tapped at all; the tap hits the sheet).
+
+**Expected:**
+- The detail view slides up as a **full-width** sheet (~390px, `left: 0`) — not an 18rem side drawer, which on a 390px screen would leave a ~100px slit of map.
+- The map **pans up** (`center.lat` changes) to bring the tapped node clear of the sheet. On desktop the equivalent pan is sideways.
+
+**What to check if broken:** the `<aside>` is **always mounted** and slides on a transform, so its existence and width prove nothing. Assert on its **`top`** — that's what tells you it actually slid in. (This exact trap made an earlier version of this test pass while selecting nothing.)
+
+---
+
 ## T13 — Regression Checklist
 
 Run after every deploy (quick pass):
@@ -494,8 +584,22 @@ Run after every deploy (quick pass):
 | **Re-center button** | Map, bottom-right | Refits view to the area |
 | **Hide-UI toggle** | Map, bottom-right | Hides all chrome; persistent restore button; icon flips |
 | **Zoom +/- not covered** | Map, bottom-right | Custom stack clears the zoom block; **+** and **−** both click |
+| **Node shapes** | Appearance tab | 4 SDF images registered; changing a shape repaints; Legend marks follow |
+| **Shapes survive basemap switch** | Header → satellite | Images re-registered on `style.load`; institutions don't vanish |
+| **Mobile: sheet collapsed** | 390×844 | Header doesn't clip; sheet is a handle; ~94% of the map visible |
+| **Mobile: attribution visible** | 390×844 | Zoom + attribution sit above the sheet (attribution is a licence requirement) |
+| **Mobile: detail = bottom sheet** | 390×844 | Full-width, slides up; map pans **up** to clear it |
+| **No a11y leaks** | Any | No `aria-hidden` container holds focusable controls (all are `inert`) |
 | Data paths not swallowed | `curl` | `/tiles/*.json` returns JSON, not HTML |
 | No horizontal body scroll | Any viewport | Page body never scrolls sideways |
+
+---
+
+## Accessibility rule (enforced, T1.2)
+
+**No `aria-hidden` container may contain focusable controls.** A collapsed panel that is merely *clipped* keeps its checkboxes, sliders and buttons in the tab order and the accessibility tree — so a keyboard or screen-reader user lands inside a panel that, as far as they have been told, does not exist. (This is also a plain ARIA violation.) Every collapsible here — the filter panel body, the Legend body, the GeoPicker's province/municipality sections, and the closed detail drawer — is `inert` when hidden. The test walks the DOM and fails on any `aria-hidden="true"` element that still contains an `input`, `button`, `select`, `textarea`, link, or positive `tabindex`.
+
+SPECS §3.5 lists accessibility as "not committed (open)". This rule is the first thing actually committed to, and it should hold as the UI grows.
 
 ---
 
@@ -503,6 +607,8 @@ Run after every deploy (quick pass):
 
 - **No backend / auth / API.** There are no security, RBAC, or server-validation tests — the entire surface is static files + client rendering. (Contrast ARAL, whose TESTS.md is API-heavy.)
 - **WebGL is invisible to snapshots.** Assert map state through `window.__ugnayMap` (see Setup), not screenshots.
+- **The app has no favicon.** The browser tab shows a blank icon. Locally this surfaces as a `/favicon.ico` 404 in the console; in production the SPA rewrite masks it by returning `index.html` (a `200` that isn't an image). Cosmetic, not yet fixed.
 - **Analytics (SPECS §3.5)** is not yet wired; add usage-telemetry tests once the privacy-reviewed tool lands.
 - **Deferred to post-demo (won't test yet):** directional progression-edge rendering (A1), area-level continuity % surfaced in the UI (§1.9), TESDA qualification-family matching (currently role-based only).
-- **Pending features (add tests when they ship):** per-sector node **shapes** (Appearance tab) — planned as SDF symbol layers; the custom-domain `ugnay.cair.ph`.
+- **Pending features (add tests when they ship):** the custom domain `ugnay.cair.ph`.
+- **Documented but not yet automated:** T8.2 (the Legend reflects live colours) — covered indirectly by T9.4/T9.5, which assert the paint and icon expressions the Legend mirrors.
