@@ -11,3 +11,98 @@ body {
   height: 100vh;
   overflow: hidden;
 }
+
+/* ---------------------------------------------------------------- map popups
+   MapLibre's default popup is cramped: tight padding, a close button jammed into
+   the corner overlapping the content, a hard white box. Restyle it into a proper
+   floating card. */
+
+.ugnay-popup .maplibregl-popup-content {
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  box-shadow:
+    0 8px 24px -6px rgba(15, 23, 42, 0.18),
+    0 2px 6px -2px rgba(15, 23, 42, 0.08);
+  background: rgba(255, 255, 255, 0.98);
+  backdrop-filter: blur(6px);
+}
+
+/* Give the close button its own gutter instead of letting it sit on the title. */
+.ugnay-popup:not(.ugnay-popup--hover) .maplibregl-popup-content {
+  padding-right: 34px;
+}
+
+.ugnay-popup .maplibregl-popup-close-button {
+  top: 7px;
+  right: 7px;
+  width: 22px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  font-size: 15px;
+  line-height: 1;
+  color: #94a3b8;
+  transition: background-color 0.12s ease, color 0.12s ease;
+}
+
+.ugnay-popup .maplibregl-popup-close-button:hover {
+  background: #f1f5f9;
+  color: #334155;
+}
+
+.ugnay-popup .maplibregl-popup-tip {
+  border-top-color: rgba(255, 255, 255, 0.98);
+  border-bottom-color: rgba(255, 255, 255, 0.98);
+}
+
+/* The hover card is a read-only preview — never intercept the pointer, or it would
+   fight the very hover that spawned it. */
+.ugnay-popup--hover,
+.ugnay-popup--hover .maplibregl-popup-content {
+  pointer-events: none;
+}
+
+/* Ease the hover card in rather than snapping it into place. */
+.ugnay-popup {
+  animation: ugnay-pop-in 160ms ease-out;
+}
+
+@keyframes ugnay-pop-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* ------------------------------------------------------------- drawer clearance
+   The detail drawer overlays the right 18rem of the map instead of resizing it (resizing
+   reallocates MapLibre's WebGL buffer, which clears it — that was the white flash on every
+   node click). MapLibre owns its bottom-right zoom controls, so shift them out from under
+   the drawer in CSS, in step with the drawer's own slide. */
+
+.maplibregl-ctrl-bottom-right {
+  transition: transform 300ms ease-out;
+}
+
+.ugnay-drawer-open .maplibregl-ctrl-bottom-right {
+  transform: translateX(-18rem);
+}
+
+/* Motion is decoration here — never let it get in the way of someone who has asked the
+   OS to reduce it. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

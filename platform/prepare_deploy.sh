@@ -1,37 +1,46 @@
 #!/bin/bash
-# Prepare data directory for Docker build.
-# Copies precomputed outputs into the platform's data/ staging area.
+# Build the frontend and stage tiles for Firebase / static deployment.
+#
+# What this does:
+#   1. Installs frontend dependencies
+#   2. Builds the Vite+React frontend to dist/
+#   3. Copies the S6 tile output into dist/tiles/ (co-deployed with the app)
+#
+# After running this script, dist/ is ready for:
+#   firebase deploy --only hosting
+#   OR: npx serve dist/
 
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-DATA_DIR="$SCRIPT_DIR/data"
+FRONTEND_DIR="$SCRIPT_DIR/frontend"
 OUTPUT_DIR="$SCRIPT_DIR/../output"
+TILES_DIR="$OUTPUT_DIR/tiles"
 
-echo "Preparing deployment data..."
+if [ ! -d "$TILES_DIR" ]; then
+  echo "ERROR: Tile directory not found at $TILES_DIR"
+  echo "  Run scripts/s6_tile_slicer.py first."
+  exit 1
+fi
 
-# Create staging directories
-mkdir -p "$DATA_DIR/edges"
-mkdir -p "$DATA_DIR/metrics"
-mkdir -p "$DATA_DIR/aggregations"
-mkdir -p "$DATA_DIR/boundaries"
+echo "=== Ugnay — Prepare Deploy ==="
 
-# Copy Phase 1 outputs
-cp "$OUTPUT_DIR/edges/all_edges.parquet" "$DATA_DIR/edges/"
-cp "$OUTPUT_DIR/edges/schools_unified_snapshot.parquet" "$DATA_DIR/edges/"
-echo "  Copied edge data"
+# 1. Build frontend
+echo "Building frontend..."
+cd "$FRONTEND_DIR"
+npm install --silent
+npm run build
+echo "  Built to: $FRONTEND_DIR/dist"
 
-# Copy Phase 2 outputs
-cp "$OUTPUT_DIR/metrics/school_accessibility.parquet" "$DATA_DIR/metrics/"
-cp "$OUTPUT_DIR/aggregations/municipal_summary.parquet" "$DATA_DIR/aggregations/"
-cp "$OUTPUT_DIR/aggregations/provincial_summary.parquet" "$DATA_DIR/aggregations/"
-cp "$OUTPUT_DIR/aggregations/regional_summary.parquet" "$DATA_DIR/aggregations/"
-echo "  Copied metrics and aggregations"
+# 2. Copy tiles into dist/tiles/
+DIST_TILES="$FRONTEND_DIR/dist/tiles"
+echo "Copying tiles to dist/tiles/ ..."
+rm -rf "$DIST_TILES"
+cp -r "$TILES_DIR" "$DIST_TILES"
+echo "  Copied $(ls "$DIST_TILES"/*.json 2>/dev/null | wc -l) tile files"
+echo "  Total dist/tiles size: $(du -sh "$DIST_TILES" | cut -f1)"
 
-# Copy boundaries
-cp "$OUTPUT_DIR/boundaries/municipal_boundaries.geojson" "$DATA_DIR/boundaries/"
-cp "$OUTPUT_DIR/boundaries/provincial_boundaries.geojson" "$DATA_DIR/boundaries/"
-echo "  Copied boundary GeoJSON"
-
-echo "Done. Data staged at: $DATA_DIR"
-echo "Total size: $(du -sh "$DATA_DIR" | cut -f1)"
+echo ""
+echo "Done. Deploy with:"
+echo "  firebase deploy --only hosting"
+echo "  OR: npx serve $FRONTEND_DIR/dist"
