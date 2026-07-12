@@ -95,6 +95,16 @@ body {
   transform: translateX(-18rem);
 }
 
+/* Our custom map controls (re-center, hide UI) sit above MapLibre's zoom buttons and must
+   ride the same slide when the drawer opens, or they'd end up floating over the drawer. */
+.ugnay-map-controls {
+  transition: transform 300ms ease-out;
+}
+
+.ugnay-drawer-open .ugnay-map-controls {
+  transform: translateX(-18rem);
+}
+
 /* Motion is decoration here — never let it get in the way of someone who has asked the
    OS to reduce it. */
 @media (prefers-reduced-motion: reduce) {

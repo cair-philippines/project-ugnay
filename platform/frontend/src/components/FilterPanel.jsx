@@ -113,36 +113,36 @@ export default function FilterPanel({
   // sit underneath it — a transform, in step with the drawer's own slide.
   const shift = `transition-transform duration-300 ease-out ${drawerOpen ? "-translate-x-72" : ""}`;
 
-  if (!open) {
-    return (
-      <button
-        onClick={() => setOpen(true)}
-        className={`absolute top-3 right-3 z-10 flex items-center gap-1.5 bg-white/95 backdrop-blur rounded-lg shadow-lg border border-gray-100 px-2.5 py-1.5 text-xs font-semibold text-gray-600 hover:text-gray-900 hover:shadow-xl ${shift}`}
-        title="Show layers & filters"
-      >
-        <span className="text-gray-400">☰</span> Layers
-      </button>
-    );
-  }
-
   return (
     <div
-      className={`absolute top-3 right-3 z-10 w-64 bg-white/95 backdrop-blur rounded-xl shadow-lg border border-gray-100 text-sm max-h-[calc(100vh-11rem)] flex flex-col ${shift}`}
+      className={`absolute top-3 right-3 z-10 w-64 bg-white/95 backdrop-blur rounded-xl shadow-lg border border-gray-100 text-sm overflow-hidden flex flex-col ${shift}`}
     >
-      {/* Header + collapse */}
-      <div className="flex items-center justify-between px-3 py-2 border-b border-gray-100 shrink-0">
-        <div className="font-semibold text-gray-700 text-xs uppercase tracking-wide">
-          Layers &amp; Filters
-        </div>
-        <button
-          onClick={() => setOpen(false)}
-          className="text-gray-400 hover:text-gray-700 leading-none px-1"
-          title="Collapse panel"
+      {/* The header doubles as the collapse toggle, and the BODY rolls open/shut
+          (max-height + opacity) rather than the panel swapping to a different pill — so it
+          animates smoothly, matching the Legend instead of popping. */}
+      <button
+        onClick={() => setOpen((o) => !o)}
+        title={open ? "Collapse panel" : "Show layers & filters"}
+        className="flex items-center justify-between gap-2 w-full px-3 py-2 text-left hover:bg-gray-50 transition-colors shrink-0"
+      >
+        <span className="font-semibold text-gray-700 text-xs uppercase tracking-wide flex items-center gap-1.5">
+          <span className="text-gray-400">☰</span> Layers &amp; Filters
+        </span>
+        <span
+          className={`text-gray-400 leading-none transition-transform duration-300 ${
+            open ? "rotate-180" : ""
+          }`}
         >
           ⌄
-        </button>
-      </div>
+        </span>
+      </button>
 
+      {/* Collapsible body — rolls open/shut like the Legend. */}
+      <div
+        className={`transition-all duration-300 ease-out overflow-hidden border-t border-gray-100 ${
+          open ? "max-h-[calc(100vh-14rem)] opacity-100" : "max-h-0 opacity-0"
+        }`}
+      >
       {/* Tabs */}
       <div className="flex border-b border-gray-100 shrink-0">
         {[
@@ -163,7 +163,7 @@ export default function FilterPanel({
         ))}
       </div>
 
-      <div className="overflow-y-auto">
+      <div className="overflow-y-auto max-h-[calc(100vh-17rem)]">
         {tab === "filters" && (
           <>
             <div className="px-3 py-2 space-y-3">
@@ -260,7 +260,9 @@ export default function FilterPanel({
 
         {tab === "appearance" && (
           <div className="px-3 py-2 space-y-3">
-            <Slider label="Node size" value={nodeSize} unit="px" min={2} max={9} onChange={onNodeSize} />
+            {/* Continuous (0.25 px steps): node radius feeds MapLibre's circle-radius,
+                which takes fractional px, so fine control is free. */}
+            <Slider label="Node size" value={nodeSize} unit="px" min={2} max={9} step={0.25} onChange={onNodeSize} />
 
             <Slider
               label="Border thickness"
@@ -298,6 +300,7 @@ export default function FilterPanel({
             </div>
           </div>
         )}
+      </div>
       </div>
     </div>
   );

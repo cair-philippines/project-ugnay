@@ -37,18 +37,21 @@ export default function SetupView({
   onSectorToggle,
   onExplore,
   fading,
+  instant = false,
 }) {
   const hasArea = selectedRegion && selectedProvinces.length >= 1;
   const hasSector = activeSectors.size >= 1;
   const canExplore = hasArea && hasSector;
 
-  // Fade IN on mount too, not just out on Explore — otherwise "Change area" made the
-  // whole landing page pop in abruptly over the map.
-  const [entered, setEntered] = useState(false);
+  // Fade IN on "Change area" re-entry, so the landing page doesn't pop abruptly over the
+  // live map. But on the FIRST load (`instant`) appear immediately: there, fading in from
+  // transparent revealed the empty map behind the overlay for a frame — the load "flash".
+  const [entered, setEntered] = useState(instant);
   useEffect(() => {
+    if (instant) return;
     const id = requestAnimationFrame(() => setEntered(true));
     return () => cancelAnimationFrame(id);
-  }, []);
+  }, [instant]);
   const shown = entered && !fading;
 
   const scopeHint =

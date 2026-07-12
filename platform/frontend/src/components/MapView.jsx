@@ -1,5 +1,6 @@
 import { useMemo, useState, useCallback, useEffect, useRef } from "react";
 import Map, { Source, Layer, Popup, NavigationControl } from "react-map-gl/maplibre";
+import { LocateFixed, Eye, EyeOff } from "lucide-react";
 import { accessibilityEdges, fillKey, gapStatus, nodeDimmed } from "../lib/graph";
 import InstitutionCard from "./InstitutionCard";
 
@@ -70,6 +71,8 @@ export default function MapView({
   sectorColors,
   selectedNode,
   onNodeClick,
+  uiHidden,
+  onToggleUiHidden,
 }) {
   const [viewState, setViewState] = useState(INITIAL_VIEW_STATE);
   const [hoverNode, setHoverNode] = useState(null);
@@ -178,6 +181,15 @@ export default function MapView({
     map.fitBounds(b, { padding: 60, maxZoom: 14, duration: 800 });
   }, [fitKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Waze-style re-center: snap the view back to frame the current area's institutions.
+  // Same robust fit the auto-fit uses, but on demand.
+  const recenter = useCallback(() => {
+    const map = mapRef.current?.getMap();
+    if (!map) return;
+    const b = robustBounds(nodesFC.features);
+    if (b) map.fitBounds(b, { padding: 60, maxZoom: 14, duration: 800 });
+  }, [nodesFC]);
+
   useEffect(() => {
     const map = mapRef.current?.getMap();
     if (map && typeof window !== "undefined") window.__ugnayMap = map; // probe hook
@@ -265,6 +277,26 @@ export default function MapView({
       onMouseLeave={handleMouseLeave}
     >
       <NavigationControl position="bottom-right" showCompass={false} />
+
+      {/* Persistent map controls, stacked above MapLibre's own zoom +/-. These stay on
+          screen even in clear-map mode, so the UI is always recoverable. Shifts with the
+          drawer via `.ugnay-map-controls` in index.css, matching the zoom control. */}
+      <div className="ugnay-map-controls absolute right-2.5 bottom-20 z-10 flex flex-col gap-2">
+        <button
+          onClick={recenter}
+          title="Re-center on this area"
+          className="w-8 h-8 flex items-center justify-center rounded-md bg-white/95 backdrop-blur shadow-md border border-gray-200 text-gray-600 hover:text-gray-900 hover:shadow-lg transition-colors"
+        >
+          <LocateFixed size={16} />
+        </button>
+        <button
+          onClick={onToggleUiHidden}
+          title={uiHidden ? "Show panels" : "Hide panels for a clear map view"}
+          className="w-8 h-8 flex items-center justify-center rounded-md bg-white/95 backdrop-blur shadow-md border border-gray-200 text-gray-600 hover:text-gray-900 hover:shadow-lg transition-colors"
+        >
+          {uiHidden ? <Eye size={16} /> : <EyeOff size={16} />}
+        </button>
+      </div>
 
       {/* Administrative borders — a visual guide only. Drawn first (underneath
           everything): solid and muted, so it outlines without competing with the data.

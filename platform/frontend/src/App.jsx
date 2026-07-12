@@ -95,7 +95,14 @@ export default function App() {
   const [sectorColors, setSectorColors] = useState(DEFAULT_COLORS);
   const [colorblind, setColorblind] = useState(false);
 
+  // "Clear map" mode — hides all overlay chrome (header, panels, legend, drawer) so the
+  // user can read the map unobstructed. The restore control lives on the map itself.
+  const [uiHidden, setUiHidden] = useState(false);
+
   const fadeTimer = useRef(null);
+  // First landing appears instantly (no fade — the fade-in revealed the empty map behind
+  // it, which read as a flash). Only "Change area" re-entry fades in over the live map.
+  const enteredMapRef = useRef(false);
 
   useEffect(() => {
     loadAdminIndex();
@@ -201,6 +208,7 @@ export default function App() {
   const handleExplore = useCallback(() => {
     const munis = effectiveMunicipalities();
     if (!munis.length) return;
+    enteredMapRef.current = true;
     evictAll();
     munis.forEach((psgc) => loadTile(psgc));
     setSelectedNode(null);
@@ -240,6 +248,7 @@ export default function App() {
 
   return (
     <div className="relative flex flex-col h-screen w-screen bg-gray-50 overflow-hidden">
+      {!uiHidden && (
       <header className="flex items-center gap-3 px-4 py-2 bg-white border-b border-gray-200 z-10 shrink-0">
         <div className="flex items-center gap-2">
           <span className="text-lg font-bold text-blue-600">Ugnay</span>
@@ -306,6 +315,7 @@ export default function App() {
           {anyLoading && <span className="text-xs text-blue-500 animate-pulse">Loading…</span>}
         </div>
       </header>
+      )}
 
       {/* The map fills this box and NEVER changes size — the drawer overlays it. Resizing
           the map container reallocates MapLibre's WebGL buffer, which clears it to white;
@@ -313,7 +323,7 @@ export default function App() {
           `ugnay-drawer-open` slides MapLibre's own bottom-right zoom controls clear of the
           drawer (see index.css). */}
       <div
-        className={`flex-1 relative overflow-hidden ${selectedNode ? "ugnay-drawer-open" : ""}`}
+        className={`flex-1 relative overflow-hidden ${selectedNode && !uiHidden ? "ugnay-drawer-open" : ""}`}
       >
           <ErrorBoundary>
             <MapView
@@ -334,9 +344,12 @@ export default function App() {
               sectorColors={sectorColors}
               selectedNode={selectedNode}
               onNodeClick={setSelectedNode}
+              uiHidden={uiHidden}
+              onToggleUiHidden={() => setUiHidden((v) => !v)}
             />
           </ErrorBoundary>
 
+          {!uiHidden && (
           <FilterPanel
             drawerOpen={!!selectedNode}
             activeSectors={activeSectors}
@@ -355,12 +368,15 @@ export default function App() {
             colorblind={colorblind}
             onColorblindToggle={handleColorblindToggle}
           />
+          )}
 
+          {!uiHidden && (
           <Legend
             sectorColors={sectorColors}
             gapVisible={gapVisible}
             thresholdKm={thresholdKm}
           />
+          )}
 
           {loadedCount === 0 && !anyLoading && (
             <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
@@ -372,6 +388,7 @@ export default function App() {
 
           {/* Detail for the pinned institution. Overlays the map and slides in on a
               transform — see DetailDrawer for why it must not resize the map. */}
+          {!uiHidden && (
           <DetailDrawer
             node={selectedNode}
             place={places[selectedNode?.node_id]}
@@ -380,6 +397,7 @@ export default function App() {
             thresholdKm={thresholdKm}
             onClose={() => setSelectedNode(null)}
           />
+          )}
       </div>
 
       {phase === "setup" && (
@@ -398,6 +416,7 @@ export default function App() {
           onSectorToggle={handleSectorToggle}
           onExplore={handleExplore}
           fading={fading}
+          instant={!enteredMapRef.current}
         />
       )}
     </div>
