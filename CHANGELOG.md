@@ -7,6 +7,39 @@ details: `documentation/deployment.md`.
 
 ---
 
+## 2026-07-12 — shape/halo fixes, mobile viewport, legend typesetting
+
+### Fixed
+- **Every node had a translucent white SQUARE behind it on the satellite basemap.** The
+  icon halo was flooding the whole icon quad. MapLibre's SDF shader derives the halo cutoff
+  as `buff = (6 − iconHaloWidth / iconSize) / 8`; with a 64px bitmap, `icon-size` was
+  `nodeSize/20`, so at the small end of the slider (nodeSize 3.25 → 0.1625) a **fixed** 1px
+  halo asked for `1 / 0.1625 = 6.15 > 6` — `buff` went negative and the shader painted the
+  entire quad with the halo colour. Invisible on the light basemap, glaring on satellite,
+  which is why it shipped.
+  Now structurally impossible, not merely avoided: a **40px bitmap** doubles the headroom,
+  and halo widths are **proportional to node size**, so `haloWidth / iconSize` is a
+  **constant 2.5** (selected: 3.0) at every slider position instead of varying. Guarded by
+  **T9.7**, which walks the whole slider range and fails if the ratio ever reaches 6.
+- **"Higher Ed — Public" was truncated to "Higher Ed — P…".** The swatch, label and four
+  shape toggles needed ~280px on one row in a 256px panel. Each sector is now a two-row
+  block (swatch + full name, then the shape toggles). Guarded by **T9.8**.
+- **On mobile you had to wait for the browser's URL/nav bars to auto-hide before "Explore
+  map →" was tappable.** The app was sized in `vh`, which is the **largest** viewport —
+  it deliberately ignores the browser chrome, so the app's bottom edge sat underneath it.
+  Everything now sizes in **`dvh`** (dynamic viewport height), which tracks the chrome as
+  it shows and hides. Guarded in **T14.1**.
+
+### Changed
+- **The Legend is typeset, not stacked.** The caveats stay fully on screen — they are
+  load-bearing, not footnotes — but they now have structure instead of being grey text
+  trailing off the panel: three bands in the order a reader needs them (**what the marks
+  mean** → **how to read it** → **what this does not say**), consistent micro-headings,
+  scannable term/definition rows for the edge encoding, and an **accent rule** setting off
+  the honesty band.
+
+---
+
 ## 2026-07-12 — mobile redesign + node shapes
 
 ### Added

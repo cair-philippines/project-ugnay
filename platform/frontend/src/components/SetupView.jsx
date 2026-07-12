@@ -87,7 +87,7 @@ export default function SetupView({
           the fold and you had to scroll a nested container to reach it. The primary action
           must never be something you have to go looking for. */}
       <div
-        className={`w-full max-w-lg bg-white rounded-2xl shadow-xl border border-gray-100 m-4 max-h-[92vh] flex flex-col transition-all duration-500 ease-out ${
+        className={`w-full max-w-lg bg-white rounded-2xl shadow-xl border border-gray-100 m-4 max-h-[92dvh] flex flex-col transition-all duration-500 ease-out ${
           shown ? "opacity-100 translate-y-0 scale-100" : "opacity-0 translate-y-3 scale-[0.98]"
         }`}
       >

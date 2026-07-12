@@ -273,8 +273,12 @@ export default function App() {
     [selectedNode, nodes, accessIndex, nearestIndex, thresholdKm]
   );
 
+  // h-[100dvh], not h-screen. `vh` is the LARGEST viewport — it deliberately ignores the
+  // mobile browser's URL and nav bars, so the app's bottom edge (and with it the "Explore
+  // map" button) sat underneath them until the chrome auto-hid. `dvh` tracks the chrome as
+  // it shows and hides, so the button is reachable immediately.
   return (
-    <div className="relative flex flex-col h-screen w-screen bg-gray-50 overflow-hidden">
+    <div className="relative flex flex-col h-[100dvh] w-screen bg-gray-50 overflow-hidden">
       {!uiHidden && (
       <header className="flex items-center gap-3 px-3 sm:px-4 py-2 bg-white border-b border-gray-200 z-10 shrink-0">
         <div className="flex items-center gap-2 min-w-0">

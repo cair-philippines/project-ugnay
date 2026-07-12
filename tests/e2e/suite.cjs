@@ -679,6 +679,52 @@ const sliderFor = (p, label) =>
     return `images re-registered; ${drawn} pins on satellite, ${back} back on plain`;
   });
 
+  await T("T9.7", "Icon halo never floods the quad (white-square regression)", async () => {
+    // MapLibre's SDF shader derives the halo cutoff as buff = (6 - haloWidth/iconSize)/8.
+    // If haloWidth/iconSize >= 6, buff goes negative and the shader paints the WHOLE icon
+    // quad with the halo colour — every node grows a translucent white SQUARE. It is
+    // invisible on the light basemap and glaring on satellite, which is why it shipped.
+    // The ratio must stay well under 6 at EVERY node size, not just the default.
+    await openPanel(p);
+    await tab(p, "Appearance");
+    await p.waitForTimeout(400);
+    const slider = sliderFor(p, "Node size");
+    const rows = [];
+    for (const ns of ["2", "3.25", "4", "6.5", "9"]) {
+      await slider.fill(ns);
+      await p.waitForTimeout(350);
+      const m = await p.evaluate(() => {
+        const map = window.__ugnayMap;
+        const size = map.getLayoutProperty("nodes-basic", "icon-size");
+        const halo = map.getPaintProperty("nodes-basic", "icon-halo-width");
+        const last = (v) => (Array.isArray(v) ? v[v.length - 1] : v); // non-selected branch
+        return { iconSize: last(size), haloW: last(halo) };
+      });
+      const ratio = m.haloW / m.iconSize;
+      assert(
+        Number.isFinite(ratio) && ratio < 6,
+        `nodeSize ${ns}: haloWidth/iconSize = ${ratio.toFixed(2)} ≥ 6 → the SDF halo floods the quad (white squares)`
+      );
+      rows.push(`${ns}:${ratio.toFixed(2)}`);
+    }
+    await slider.fill("4");
+    await p.waitForTimeout(400);
+    return `halo/iconSize ratio across the slider — ${rows.join("  ")} (all < 6)`;
+  });
+
+  await T("T9.8", "Sector labels are not truncated in the shape picker", async () => {
+    const clipped = await p.evaluate(() =>
+      [...document.querySelectorAll("span")]
+        .filter((e) => e.scrollWidth > e.clientWidth + 1 && /Higher Ed|DepEd|TESDA/.test(e.innerText || ""))
+        .map((e) => e.innerText)
+    );
+    assert(clipped.length === 0, `sector labels are clipped: ${JSON.stringify(clipped)}`);
+    const txt = await p.locator("body").innerText();
+    assert(/Higher Ed — Public/.test(txt) && /Higher Ed — Private/.test(txt),
+      "the full 'Higher Ed — Public/Private' labels are not rendered");
+    return "full sector names shown (no '…' truncation)";
+  });
+
   log("\nT10 — Map Controls (new)");
   await T("T10.1", "Re-center button refits the view", async () => {
     const closeBtn = p.getByRole("button", { name: "✕" });
@@ -850,7 +896,16 @@ const sliderFor = (p, label) =>
       assert(b1 && b1.y + b1.height <= 844, `Explore pushed off-screen after choosing a region (y=${b1?.y})`);
       assert(await btn.isVisible(), "Explore not visible");
       assert(b1.height >= 40, `tap target too small: ${b1.height}px (want ≥ 40)`);
-      return `Explore pinned at y=${Math.round(b1.y)}, ${Math.round(b1.height)}px tall, before & after the province list appears`;
+      // The app shell must size on `dvh`, not `vh`. `vh` is the LARGEST viewport — it
+      // ignores the mobile browser's URL/nav bars, so the app's bottom edge (and this
+      // button with it) hides underneath them until the chrome auto-hides.
+      const units = await m.evaluate(() => {
+        const root = document.querySelector("#root > div") || document.body.firstElementChild;
+        return { cls: root.className, h: Math.round(root.getBoundingClientRect().height) };
+      });
+      assert(/dvh/.test(units.cls) && !/h-screen/.test(units.cls),
+        `app shell must use dvh, not vh/h-screen (class: "${units.cls}")`);
+      return `Explore pinned at y=${Math.round(b1.y)}, ${Math.round(b1.height)}px tall, before & after the province list appears; shell sized in dvh`;
     });
 
     await T("T14.2", "Landing hint says 'Pick a region' before any region is chosen", async () => {

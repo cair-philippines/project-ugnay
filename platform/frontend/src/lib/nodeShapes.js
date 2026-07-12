@@ -17,17 +17,47 @@
 
 const SPREAD = 8; // distance ramp, in px — MapLibre's SDF_PX
 const CUTOFF = 0.25; // ⇒ edge at alpha 0.75
-const SIZE = 64; // icon bitmap, px (square)
+const SIZE = 40; // icon bitmap, px (square)
 const C = SIZE / 2;
 
 // Half-extents tuned so the four shapes read as the SAME visual weight. Equal *area*,
-// not equal width: a 40px-wide triangle looks far smaller than a 40px circle, and a
-// diamond looks bigger. Each also stays ≥ SPREAD px from the bitmap edge, or the
-// distance ramp would be clipped and the outline would break up.
-const R_CIRCLE = 20;
-const B_SQUARE = 17; // half-side
-const A_DIAMOND = 23; // L1 radius (vertex distance on the axes)
-const R_TRIANGLE = 24; // circumradius, apex up
+// not equal width: a same-width triangle looks far smaller than a circle, and a diamond
+// looks bigger. Each also stays ≥ 6px from the bitmap edge — the distance ramp reaches
+// zero at 6px (see `buildSDF`), so a smaller margin would clip the field and break the
+// outline.
+const R_CIRCLE = 10;
+const B_SQUARE = 8.5; // half-side
+const A_DIAMOND = 11.5; // L1 radius (vertex distance on the axes)
+const R_TRIANGLE = 12; // circumradius, apex up
+
+// ---------------------------------------------------------------- halo sizing
+//
+// THE BITMAP SIZE IS NOT FREE — it sets how thick a halo you are allowed to ask for.
+//
+// MapLibre's SDF shader derives the halo's cutoff as
+//     buff = (6 - icon-halo-width / iconSize) / SDF_PX
+// where `iconSize` is our `icon-size` (a scale factor, not pixels). If
+// `icon-halo-width / iconSize` exceeds 6, **buff goes negative and the shader paints the
+// ENTIRE icon quad** with the halo colour — every node grows a translucent white SQUARE.
+// It is invisible on the light basemap and glaring on satellite.
+//
+// That is exactly what happened with a 64px bitmap: `icon-size` was `nodeSize/20`, so at
+// the slider's small end (nodeSize 3.25 → iconSize 0.1625) a 1px halo asked for
+// 1/0.1625 = 6.15 > 6.
+//
+// Two changes make it structurally impossible rather than merely unlikely:
+//   1. A 40px bitmap (R_CIRCLE = 10) ⇒ icon-size = nodeSize/10, doubling the headroom.
+//   2. Halo widths are PROPORTIONAL to node size, so `haloWidth / iconSize` is a CONSTANT
+//      ratio — independent of the slider — and stays comfortably under 6 at every size.
+const HALO_RATIO = 2.5; // resting outline  → buff = (6 - 2.5)/8 = 0.44
+const HALO_RATIO_SELECTED = 3.0; // pinned ring → buff = (6 - 3.0)/8 = 0.38
+
+/** Resting white outline, in screen px. 1px at the default node size of 4. */
+export const haloWidthFor = (nodeSize) => (HALO_RATIO * nodeSize) / R_CIRCLE;
+
+/** The pinned node's dark ring. Scaled off its own (larger) icon size. */
+export const haloWidthSelectedFor = (selectedSize) =>
+  (HALO_RATIO_SELECTED * selectedSize) / R_CIRCLE;
 
 export const NODE_SHAPES = ["circle", "square", "triangle", "diamond"];
 export const SHAPE_LABEL = {
@@ -78,9 +108,9 @@ function sdPolygon(x, y, pts) {
 
 const TRIANGLE_PTS = [-90, 30, 150].map((deg) => {
   const r = (deg * Math.PI) / 180;
-  // Nudge down by a few px so the centroid — not the circumcentre — sits at the icon's
+  // Nudge down slightly so the centroid — not the circumcentre — sits at the icon's
   // middle; otherwise a triangle pin looks like it's floating above its own coordinate.
-  return [C + R_TRIANGLE * Math.cos(r), C + R_TRIANGLE * Math.sin(r) + 3];
+  return [C + R_TRIANGLE * Math.cos(r), C + R_TRIANGLE * Math.sin(r) + 1.5];
 });
 
 const FIELD = {

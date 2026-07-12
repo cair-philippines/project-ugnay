@@ -383,6 +383,24 @@ Use a small, dense area for speed (e.g. a single municipality) and one large one
 
 ---
 
+### T9.7 The icon halo must never flood the quad (white-square regression)
+**Why:** MapLibre's SDF shader derives the halo cutoff as `buff = (6 − iconHaloWidth / iconSize) / 8`. If `iconHaloWidth / iconSize` reaches **6**, `buff` goes negative and the shader paints the **entire icon quad** with the halo colour — every node grows a translucent white **square**. It is invisible on the light basemap and glaring on **satellite**, which is exactly how it reached production.
+
+**Steps:**
+1. On the Appearance tab, sweep **Node size** across its whole range (2 → 9).
+2. At each stop, read `icon-size` (layout) and `icon-halo-width` (paint) off `nodes-basic` and take the non-selected branch of each expression.
+
+**Expected:** `haloWidth / iconSize` is **< 6 at every size** — in fact a constant **2.5** (selected: 3.0), because the halo widths are proportional to node size. A *fixed* pixel halo makes this ratio vary with the slider and is what broke.
+
+**What to check if broken:** `lib/nodeShapes.js` — `haloWidthFor` / `haloWidthSelectedFor` and `R_CIRCLE`. Check on **satellite**; the light basemap hides it.
+
+---
+
+### T9.8 Sector labels are not truncated
+**Expected:** "Higher Ed — **Public**" and "Higher Ed — **Private**" render in full in the Appearance tab. The swatch + label + four shape toggles do not fit on one row in a 256px panel, so each sector is a **two-row block**. No element with a sector name has `scrollWidth > clientWidth`.
+
+---
+
 ## T10 — Map Controls (new — 2026-07-12)
 
 ### T10.1 Re-center button
@@ -590,6 +608,9 @@ Run after every deploy (quick pass):
 | **Mobile: attribution visible** | 390×844 | Zoom + attribution sit above the sheet (attribution is a licence requirement) |
 | **Mobile: detail = bottom sheet** | 390×844 | Full-width, slides up; map pans **up** to clear it |
 | **No a11y leaks** | Any | No `aria-hidden` container holds focusable controls (all are `inert`) |
+| **No white squares** | **Satellite** basemap, small node size | `haloWidth / iconSize` < 6 at every size (check on satellite — the light basemap hides it) |
+| **Sector labels intact** | Appearance tab | "Higher Ed — Public/Private" shown in full, not truncated |
+| **Mobile viewport** | 390×844 | App shell sized in `dvh`, not `vh` — the primary action isn't hidden under the browser chrome |
 | Data paths not swallowed | `curl` | `/tiles/*.json` returns JSON, not HTML |
 | No horizontal body scroll | Any viewport | Page body never scrolls sideways |
 

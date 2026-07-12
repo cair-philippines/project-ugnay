@@ -180,9 +180,9 @@ export default function FilterPanel({
 
   // Body height: on mobile cap the sheet at 70vh so the map is never fully swallowed.
   const bodyOpen = isMobile
-    ? "max-h-[70vh] opacity-100"
+    ? "max-h-[70dvh] opacity-100"
     : "max-h-[calc(100vh-14rem)] opacity-100";
-  const scrollCap = isMobile ? "max-h-[calc(70vh-6rem)]" : "max-h-[calc(100vh-17rem)]";
+  const scrollCap = isMobile ? "max-h-[calc(70dvh-6rem)]" : "max-h-[calc(100vh-17rem)]";
 
   return (
     <div
@@ -438,16 +438,24 @@ export default function FilterPanel({
                   Shape is a second channel: it survives printing in black and white, and stays
                   readable where two sectors sit on top of each other.
                 </p>
-                <div className="space-y-1.5">
+                {/* Two rows per sector, not one. On one row the swatch + label + four
+                    shape toggles need ~280px, and the panel is 256 — so "Higher Ed —
+                    Public" truncated to "Higher Ed — P…". The name of the sector is the
+                    one thing here that must never be guessed at. */}
+                <div className="space-y-2.5">
                   {SECTOR_SWATCHES.map(([k, label]) => (
-                    <div key={k} className="flex items-center gap-2 text-xs text-gray-600">
-                      <Swatch color={sectorColors[k]} onChange={(c) => onSectorColor(k, c)} />
-                      <span className="flex-1 min-w-0 truncate">{label}</span>
-                      <ShapePicker
-                        value={nodeShapes[k]}
-                        color={sectorColors[k]}
-                        onChange={(s) => onSectorShape(k, s)}
-                      />
+                    <div key={k} className="flex flex-col gap-1">
+                      <div className="flex items-center gap-2 text-xs text-gray-700">
+                        <Swatch color={sectorColors[k]} onChange={(c) => onSectorColor(k, c)} />
+                        <span className="font-medium">{label}</span>
+                      </div>
+                      <div className="pl-8">
+                        <ShapePicker
+                          value={nodeShapes[k]}
+                          color={sectorColors[k]}
+                          onChange={(s) => onSectorShape(k, s)}
+                        />
+                      </div>
                     </div>
                   ))}
                 </div>

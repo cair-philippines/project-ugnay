@@ -2,7 +2,13 @@ import { useMemo, useState, useCallback, useEffect, useRef } from "react";
 import Map, { Source, Layer, Popup, NavigationControl } from "react-map-gl/maplibre";
 import { LocateFixed, Eye, EyeOff } from "lucide-react";
 import { accessibilityEdges, fillKey, gapStatus, nodeDimmed } from "../lib/graph";
-import { addShapeImages, iconSizeFor, shapeImageId } from "../lib/nodeShapes";
+import {
+  addShapeImages,
+  haloWidthFor,
+  haloWidthSelectedFor,
+  iconSizeFor,
+  shapeImageId,
+} from "../lib/nodeShapes";
 import InstitutionCard from "./InstitutionCard";
 
 const INITIAL_VIEW_STATE = {
@@ -15,12 +21,16 @@ const INITIAL_VIEW_STATE = {
 
 const EMPTY_FC = { type: "FeatureCollection", features: [] };
 
-// Keep in step with DetailDrawer: `w-72` (18rem) as a right drawer on desktop, `h-[60vh]`
-// as a bottom sheet on mobile. EDGE_MARGIN keeps a selected node off the panel's very
-// edge, so its edge fan still has room to fan out.
+// Keep in step with DetailDrawer: `w-72` (18rem) as a right drawer on desktop,
+// `h-[60dvh]` as a bottom sheet on mobile. EDGE_MARGIN keeps a selected node off the
+// panel's very edge, so its edge fan still has room to fan out.
 const DRAWER_W = 288;
-const SHEET_H = Math.round((typeof window !== "undefined" ? window.innerHeight : 800) * 0.6);
 const EDGE_MARGIN = 72;
+
+// Measured, not frozen at import: `dvh` shrinks and grows as the mobile browser's chrome
+// hides and shows, so a constant captured once would drift out of step with the sheet it
+// is supposed to describe.
+const sheetHeight = () => Math.round(window.innerHeight * 0.6);
 
 // line-cap/line-join are LAYOUT properties. In `paint`, MapLibre silently rejects the
 // whole layer at addLayer() — the layer just never exists. Keep them here.
@@ -196,11 +206,21 @@ export default function MapView({
       "icon-opacity": nodeOpacityExpr,
       "icon-opacity-transition": { duration: 260 },
       // The old circle-stroke: white hairline normally, dark ring when pinned.
+      //
+      // The widths MUST scale with the node size. `icon-halo-width` is divided by
+      // `icon-size` inside MapLibre's SDF shader, and if the result exceeds 6 the shader
+      // floods the whole icon quad with the halo colour — every node grows a translucent
+      // white SQUARE (invisible on the light basemap, glaring on satellite). Fixed pixel
+      // widths did exactly that at the small end of the size slider. See lib/nodeShapes.js.
       "icon-halo-color": ["case", ["==", ["get", "node_id"], selId], "#1e293b", "#ffffff"],
-      "icon-halo-width": ["case", ["==", ["get", "node_id"], selId], 2.4, 1],
+      "icon-halo-width": [
+        "case",
+        ["==", ["get", "node_id"], selId], haloWidthSelectedFor(nodeSize + 4),
+        haloWidthFor(nodeSize),
+      ],
       "icon-halo-blur": 0,
     }),
-    [colorExpr, selId, nodeOpacityExpr]
+    [colorExpr, selId, nodeSize, nodeOpacityExpr]
   );
 
   const fitKey =
@@ -257,7 +277,7 @@ export default function MapView({
     if (isMobile) {
       // On mobile the detail view is a BOTTOM sheet, so the node hides below, not behind:
       // pan up by however far it sits into the sheet.
-      const clearHeight = box.clientHeight - SHEET_H;
+      const clearHeight = box.clientHeight - sheetHeight();
       const overshoot = y - (clearHeight - EDGE_MARGIN);
       if (overshoot > 0) map.panBy([0, overshoot], { duration: 380 });
       return;

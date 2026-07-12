@@ -95,7 +95,7 @@ export default function DetailDrawer({
   // Both slide on a TRANSFORM and overlay the map; neither resizes it, because resizing
   // the map container reallocates MapLibre's WebGL buffer and flashes it white.
   const shell = isMobile
-    ? `inset-x-0 bottom-0 h-[60vh] rounded-t-2xl border-t shadow-[0_-6px_20px_-10px_rgba(15,23,42,0.25)] ${
+    ? `inset-x-0 bottom-0 h-[60dvh] rounded-t-2xl border-t shadow-[0_-6px_20px_-10px_rgba(15,23,42,0.25)] ${
         node ? "translate-y-0" : "translate-y-full pointer-events-none"
       }`
     : `inset-y-0 right-0 w-72 border-l shadow-[-6px_0_20px_-10px_rgba(15,23,42,0.25)] ${
