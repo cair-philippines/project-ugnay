@@ -79,17 +79,45 @@ function Ladder({ stats, colors }) {
   );
 }
 
-export default function DetailDrawer({ node, place, colors, stats, thresholdKm, onClose }) {
+export default function DetailDrawer({
+  node,
+  place,
+  colors,
+  stats,
+  thresholdKm,
+  onClose,
+  isMobile = false,
+}) {
   const hasStats = stats && node;
+
+  // Desktop: a right-hand drawer that slides in horizontally. Mobile: a BOTTOM sheet that
+  // slides up — an 18rem side drawer on a 390px screen would leave a 100px slit of map.
+  // Both slide on a TRANSFORM and overlay the map; neither resizes it, because resizing
+  // the map container reallocates MapLibre's WebGL buffer and flashes it white.
+  const shell = isMobile
+    ? `inset-x-0 bottom-0 h-[60vh] rounded-t-2xl border-t shadow-[0_-6px_20px_-10px_rgba(15,23,42,0.25)] ${
+        node ? "translate-y-0" : "translate-y-full pointer-events-none"
+      }`
+    : `inset-y-0 right-0 w-72 border-l shadow-[-6px_0_20px_-10px_rgba(15,23,42,0.25)] ${
+        node ? "translate-x-0" : "translate-x-full pointer-events-none"
+      }`;
+
   return (
     <aside
       aria-hidden={!node}
-      className={`absolute inset-y-0 right-0 w-72 z-20 flex flex-col bg-white border-l border-gray-200
-        shadow-[-6px_0_20px_-10px_rgba(15,23,42,0.25)]
-        transition-transform duration-300 ease-out will-change-transform
-        ${node ? "translate-x-0" : "translate-x-full pointer-events-none"}`}
+      // `aria-hidden` on a container that still holds a focusable control (the ✕) is an
+      // ARIA violation: a keyboard user tabs into a panel that, to them, isn't there.
+      // `inert` takes it out of the tab order and the a11y tree together.
+      inert={!node}
+      className={`absolute z-30 flex flex-col bg-white border-gray-200
+        transition-transform duration-300 ease-out will-change-transform ${shell}`}
     >
-      <div className="w-72 h-full flex flex-col">
+      {isMobile && (
+        <div className="flex justify-center pt-2 pb-1 shrink-0">
+          <span className="w-9 h-1 rounded-full bg-gray-300" />
+        </div>
+      )}
+      <div className={`h-full flex flex-col ${isMobile ? "w-full" : "w-72"}`}>
         <div className="flex items-center justify-between px-3 py-2 border-b border-gray-100 shrink-0">
           <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
             Institution

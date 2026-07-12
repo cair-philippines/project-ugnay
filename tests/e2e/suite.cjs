@@ -152,8 +152,9 @@ const sliderFor = (p, label) =>
       const enabled = await p.getByRole("button", { name: /Explore map/ }).isEnabled();
       assert(!enabled, "Explore should be DISABLED with no region chosen");
       const hint = await p.locator("body").innerText();
-      assert(/Select an area and at least one sector to continue/.test(hint), "gating hint missing");
-      return "3 sectors on, Explore gated";
+      assert(/Choose a region to begin/.test(hint), "expected the first-step hint 'Choose a region to begin.'");
+      assert(/Pick a region/.test(hint), "scope hint should read 'Pick a region' before a region is chosen");
+      return "3 sectors on, Explore gated, hint points at the FIRST action (region)";
     });
 
     await T("T1.2", "Region → all provinces default; provincial terminal", async () => {
@@ -166,9 +167,41 @@ const sliderFor = (p, label) =>
       assert(checked === after, `expected all provinces checked by default (${checked}/${after})`);
       const txt = await p.locator("body").innerText();
       assert(/Province-wide — all institutions across 7 provinces/.test(txt), "scope hint wrong: expected Province-wide/7");
-      const picker = await p.getByText("Municipality / City").count();
-      assert(picker === 0, "municipality picker should be ABSENT with 2+ provinces");
-      return "7/7 provinces default-checked, municipality picker absent";
+      const picker = await p.evaluate(() => {
+        const lab = [...document.querySelectorAll("label")].find((e) =>
+          e.textContent.includes("Municipality / City")
+        );
+        if (!lab) return { present: false };
+        const box = lab.closest("[aria-hidden]");
+        return {
+          present: true,
+          hidden: box ? box.getAttribute("aria-hidden") === "true" : false,
+          height: Math.round(box ? box.getBoundingClientRect().height : -1),
+        };
+      });
+      assert(
+        !picker.present || (picker.hidden && picker.height < 4),
+        `municipality picker should be collapsed+hidden with 2+ provinces: ${JSON.stringify(picker)}`
+      );
+      // Collapsed ≠ merely clipped: it must also be out of the tab order and the a11y tree,
+      // or a keyboard/screen-reader user lands on checkboxes that visually do not exist.
+      // The rule: anything hidden from the a11y tree must not still hold focusable controls.
+      // (An aria-hidden container with a tabbable button inside is an ARIA violation — a
+      // keyboard user tabs into a panel that, as far as they're told, does not exist.)
+      const leaks = await p.evaluate(() => {
+        const SEL = "input,button,select,textarea,a[href],[tabindex]:not([tabindex='-1'])";
+        return [...document.querySelectorAll("[aria-hidden='true']")]
+          .filter((b) => !b.hasAttribute("inert") && b.querySelectorAll(SEL).length > 0)
+          .map((b) => ({
+            controls: b.querySelectorAll(SEL).length,
+            text: (b.innerText || "").slice(0, 30).replace(/\n/g, "|"),
+          }));
+      });
+      assert(
+        leaks.length === 0,
+        `aria-hidden containers still holding focusable controls: ${JSON.stringify(leaks)}`
+      );
+      return `7/7 provinces default-checked; municipality picker collapsed (height 0, aria-hidden, inert)`;
     });
 
     await T("T1.3", "Single province → municipal terminal opens", async () => {
@@ -178,7 +211,14 @@ const sliderFor = (p, label) =>
       await p.waitForTimeout(600);
       const txt = await p.locator("body").innerText();
       assert(/Whole province \(all municipalities\)/.test(txt), "expected 'Whole province' hint");
-      assert((await p.getByText("Municipality / City").count()) > 0, "municipality picker did not appear for single province");
+      const shown = await p.evaluate(() => {
+        const lab = [...document.querySelectorAll("label")].find((e) =>
+          e.textContent.includes("Municipality / City")
+        );
+        const box = lab && lab.closest("[aria-hidden]");
+        return box ? box.getBoundingClientRect().height : 0;
+      });
+      assert(shown > 20, `municipality picker did not expand for a single province (height ${shown})`);
       await p.locator("label").filter({ hasText: /^La Trinidad$/ }).locator("input[type=checkbox]").check();
       await p.waitForTimeout(400);
       const txt2 = await p.locator("body").innerText();
@@ -372,10 +412,10 @@ const sliderFor = (p, label) =>
     await p.waitForTimeout(900);
     const after = await nodeCount(p);
     assert(after === before, `dim must NOT remove nodes (${before} → ${after})`);
-    const opacities = await p.evaluate(() => {
-      const m = window.__ugnayMap;
-      return m.getPaintProperty("nodes-basic", "circle-opacity");
-    });
+    const opacities = await p.evaluate(() =>
+      window.__ugnayMap.getPaintProperty("nodes-basic", "icon-opacity")
+    );
+    assert(opacities !== undefined, "icon-opacity missing — are the node layers still symbols?");
     await dimBtn.click();
     await p.waitForTimeout(500);
     return `node count preserved (${before}); opacity expression is ${Array.isArray(opacities) ? "data-driven" : String(opacities)}`;
@@ -555,11 +595,11 @@ const sliderFor = (p, label) =>
     await p.waitForTimeout(800);
     const txt = await p.locator("body").innerText();
     assert(/4\.25\s*px/.test(txt), "fractional readout '4.25px' not shown");
-    const radiusChanged = await p.evaluate(() => {
-      const r = window.__ugnayMap.getPaintProperty("nodes-basic", "circle-radius");
-      return JSON.stringify(r);
-    });
-    return `step=${attrs.step} range=${attrs.min}-${attrs.max}; readout shows 4.25px; circle-radius wired`;
+    const sized = await p.evaluate(() =>
+      JSON.stringify(window.__ugnayMap.getLayoutProperty("nodes-basic", "icon-size"))
+    );
+    assert(sized && sized !== "null", "icon-size is not wired to the node-size slider");
+    return `step=${attrs.step} range=${attrs.min}-${attrs.max}; readout shows 4.25px; icon-size wired`;
   });
 
   await T("T9.3", "Border thickness 0 hides borders, 5 thickens", async () => {
@@ -579,17 +619,64 @@ const sliderFor = (p, label) =>
   });
 
   await T("T9.4", "Colorblind-safe palette repaints pins + legend", async () => {
-    const paintBefore = await p.evaluate(() => JSON.stringify(window.__ugnayMap.getPaintProperty("nodes-basic", "circle-color")));
+    const paintBefore = await p.evaluate(() => JSON.stringify(window.__ugnayMap.getPaintProperty("nodes-basic", "icon-color")));
     const cb = p.locator("label").filter({ hasText: /Colorblind/i }).first();
     await cb.click();
     await p.waitForTimeout(1000);
-    const paintAfter = await p.evaluate(() => JSON.stringify(window.__ugnayMap.getPaintProperty("nodes-basic", "circle-color")));
+    const paintAfter = await p.evaluate(() => JSON.stringify(window.__ugnayMap.getPaintProperty("nodes-basic", "icon-color")));
     assert(paintBefore !== paintAfter, "colorblind toggle did not change the node paint expression");
     await cb.click();
     await p.waitForTimeout(800);
-    const paintBack = await p.evaluate(() => JSON.stringify(window.__ugnayMap.getPaintProperty("nodes-basic", "circle-color")));
+    const paintBack = await p.evaluate(() => JSON.stringify(window.__ugnayMap.getPaintProperty("nodes-basic", "icon-color")));
     assert(paintBack === paintBefore, "toggling colorblind off did not restore the default palette");
     return "palette swaps and restores";
+  });
+
+  await T("T9.5", "Per-sector node SHAPES (SDF symbol layers)", async () => {
+    await openPanel(p);
+    await tab(p, "Appearance");
+    await p.waitForTimeout(400);
+    const imgs = await p.evaluate(() =>
+      ["circle", "square", "triangle", "diamond"].map((s) => window.__ugnayMap.hasImage(`ugnay-shape-${s}`))
+    );
+    assert(imgs.every(Boolean), `not all shape images registered: ${JSON.stringify(imgs)}`);
+    const before = await p.evaluate(() =>
+      JSON.stringify(window.__ugnayMap.getLayoutProperty("nodes-basic", "icon-image"))
+    );
+    // The DepEd Public row's shape picker: pick "diamond" (unused by default).
+    const row = p.locator("div").filter({ hasText: /^DepEd Public$/ }).last();
+    await p.locator('button[title="Diamond"]').first().click();
+    await p.waitForTimeout(1000);
+    const after = await p.evaluate(() =>
+      JSON.stringify(window.__ugnayMap.getLayoutProperty("nodes-basic", "icon-image"))
+    );
+    assert(before !== after, "changing the shape did not change the icon-image expression");
+    assert(/diamond/.test(after), `icon-image should now reference the diamond: ${after}`);
+    const drawn = await renderedCount(p, "nodes-basic");
+    assert(drawn > 0, "no nodes rendered after the shape change — missing icon?");
+    // restore
+    await p.locator('button[title="Circle"]').first().click();
+    await p.waitForTimeout(600);
+    return `4 SDF images registered; DepEd Public → diamond repainted ${drawn} nodes`;
+  });
+
+  await T("T9.6", "Shape images survive a basemap switch (regression)", async () => {
+    // setStyle drops every image the app added. If they aren't re-registered on
+    // style.load, the symbol layers reference missing icons and EVERY institution
+    // silently disappears the first time you switch basemap.
+    await p.getByRole("button", { name: /^satellite$/i }).click();
+    await p.waitForTimeout(3000);
+    const imgs = await p.evaluate(() =>
+      ["circle", "square", "triangle", "diamond"].map((s) => window.__ugnayMap.hasImage(`ugnay-shape-${s}`))
+    );
+    assert(imgs.every(Boolean), "shape images were NOT re-registered after the basemap switch");
+    const drawn = await renderedCount(p, "nodes-basic");
+    assert(drawn > 0, "institutions vanished after the basemap switch (missing icons)");
+    await p.getByRole("button", { name: /^plain$/i }).click();
+    await p.waitForTimeout(2500);
+    const back = await renderedCount(p, "nodes-basic");
+    assert(back > 0, "institutions vanished switching back to plain");
+    return `images re-registered; ${drawn} pins on satellite, ${back} back on plain`;
   });
 
   log("\nT10 — Map Controls (new)");
@@ -740,6 +827,168 @@ const sliderFor = (p, label) =>
     if (secs > 0.05) throw new Error(`reduced-motion NOT honoured: transition-duration still ${dur}`);
     return `transition-duration = ${dur}`;
   });
+
+
+  // ===== T14 — Mobile design (390x844) =====
+  log("\nT14 — Mobile (390×844)");
+  {
+    const mctx = await browser.newContext({
+      viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, deviceScaleFactor: 2,
+    });
+    const m = await mctx.newPage();
+
+    await T("T14.1", "Landing: primary action reachable without scrolling", async () => {
+      await m.goto(BASE, { waitUntil: "networkidle", timeout: 60000 });
+      await m.waitForSelector("select", { timeout: 30000 });
+      const btn = m.getByRole("button", { name: /Explore map/ });
+      const b0 = await btn.boundingBox();
+      assert(b0 && b0.y + b0.height <= 844, `Explore button off-screen at load (y=${b0?.y})`);
+      // choosing a region grows the card — the button must NOT be pushed below the fold
+      await m.locator("select").first().selectOption({ label: "Cordillera Administrative Region (CAR)" });
+      await m.waitForTimeout(900);
+      const b1 = await btn.boundingBox();
+      assert(b1 && b1.y + b1.height <= 844, `Explore pushed off-screen after choosing a region (y=${b1?.y})`);
+      assert(await btn.isVisible(), "Explore not visible");
+      assert(b1.height >= 40, `tap target too small: ${b1.height}px (want ≥ 40)`);
+      return `Explore pinned at y=${Math.round(b1.y)}, ${Math.round(b1.height)}px tall, before & after the province list appears`;
+    });
+
+    await T("T14.2", "Landing hint says 'Pick a region' before any region is chosen", async () => {
+      const fresh = await mctx.newPage();
+      await fresh.goto(BASE, { waitUntil: "networkidle", timeout: 60000 });
+      await fresh.waitForSelector("select");
+      const txt = await fresh.locator("body").innerText();
+      assert(/Pick a region/i.test(txt), "expected the hint to say 'Pick a region'");
+      assert(!/Pick at least one province/i.test(txt), "still telling the user to pick a province before a region exists");
+      await fresh.close();
+      return "'Pick a region' shown; province hint suppressed until a region exists";
+    });
+
+    await T("T14.3", "Header does not overflow; map chrome is a bottom sheet", async () => {
+      await enterMap(m, { region: "Cordillera Administrative Region (CAR)", province: "Benguet" });
+      const hdr = await m.evaluate(() => {
+        const h = document.querySelector("header");
+        return { w: Math.round(h.getBoundingClientRect().width), scroll: h.scrollWidth, client: h.clientWidth };
+      });
+      assert(hdr.scroll <= hdr.client + 1, `header overflows: scrollWidth ${hdr.scroll} > clientWidth ${hdr.client}`);
+      const hScroll = await m.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1);
+      assert(!hScroll, "page scrolls horizontally at 390px");
+      // header must NOT carry the desktop-only controls any more
+      const t = await m.locator("header").innerText();
+      assert(!/Gap analysis/i.test(t), "gap analysis still in the mobile header (it belongs in the sheet)");
+      assert(!/satellite/i.test(t), "basemap buttons still in the mobile header");
+      const sheet = await m.locator(".ugnay-sheet").count();
+      assert(sheet === 1, "bottom sheet not present");
+      return `header ${hdr.w}px, no overflow, no h-scroll; controls moved into the sheet`;
+    });
+
+    await T("T14.4", "Sheet is COLLAPSED by default — the map is unobstructed", async () => {
+      const body = m.locator(".ugnay-sheet .transition-all.overflow-hidden").first();
+      const h = await body.evaluate((e) => e.getBoundingClientRect().height);
+      assert(h < 5, `sheet body is open on load (${Math.round(h)}px) — the map should be clear by default`);
+      const sheetTop = await m.evaluate(() => document.querySelector(".ugnay-sheet").getBoundingClientRect().top);
+      const mapVisible = (844 - sheetTop) / 844;
+      assert(sheetTop > 700, `collapsed sheet eats too much screen (top at ${Math.round(sheetTop)}px)`);
+      return `collapsed to ${Math.round(844 - sheetTop)}px; ${Math.round((sheetTop - 45) / (844 - 45) * 100)}% of the map visible`;
+    });
+
+    await T("T14.5", "Sheet opens with Filters / Appearance / Legend, incl. the moved controls", async () => {
+      await m.getByRole("button", { name: /LAYERS & FILTERS/i }).click();
+      await m.waitForTimeout(700);
+      const txt = await m.locator(".ugnay-sheet").innerText();
+      for (const want of ["Filters", "Appearance", "Legend", "Sectors", "Basemap", "Gap analysis"]) {
+        assert(new RegExp(want, "i").test(txt), `sheet is missing "${want}"`);
+      }
+      const body = m.locator(".ugnay-sheet .transition-all.overflow-hidden").first();
+      const h = await body.evaluate((e) => e.getBoundingClientRect().height);
+      assert(h > 100, `sheet did not open (${Math.round(h)}px)`);
+      assert(h <= 844 * 0.72, `sheet is taller than 70vh (${Math.round(h)}px) — it would swallow the map`);
+      // the Legend tab must actually show the key
+      await m.getByRole("button", { name: "Legend", exact: true }).click();
+      await m.waitForTimeout(500);
+      const leg = await m.locator(".ugnay-sheet").innerText();
+      assert(/DepEd Public/.test(leg), "Legend tab does not show the sector key");
+      await m.getByRole("button", { name: "Filters", exact: true }).click();
+      await m.waitForTimeout(300);
+      return `sheet ${Math.round(h)}px (≤70vh); tabs + sectors + basemap + gap analysis + legend all present`;
+    });
+
+    await T("T14.6", "Zoom +/- and attribution clear the sheet (not buried under it)", async () => {
+      // collapse the sheet first — this is the default state the map is read in
+      await m.getByRole("button", { name: /LAYERS & FILTERS/i }).click();
+      await m.waitForTimeout(700);
+      const g = await m.evaluate(() => {
+        const sheet = document.querySelector(".ugnay-sheet").getBoundingClientRect();
+        const zi = document.querySelector(".maplibregl-ctrl-zoom-in").getBoundingClientRect();
+        const zo = document.querySelector(".maplibregl-ctrl-zoom-out").getBoundingClientRect();
+        const attr = document.querySelector(".maplibregl-ctrl-attrib");
+        const a = attr ? attr.getBoundingClientRect() : null;
+        const stack = document.querySelector(".ugnay-map-controls").getBoundingClientRect();
+        const el = document.elementFromPoint(zi.x + zi.width / 2, zi.y + zi.height / 2);
+        return {
+          sheetTop: Math.round(sheet.top),
+          zoomOutBottom: Math.round(zo.bottom),
+          attrBottom: a ? Math.round(a.bottom) : null,
+          gapAboveZoom: Math.round(zi.top - stack.bottom),
+          zoomCovered: !!(el && el.closest && (el.closest(".ugnay-sheet") || el.closest(".ugnay-map-controls"))),
+        };
+      });
+      assert(!g.zoomCovered, "the zoom-in button is covered (by the sheet or the control stack)");
+      assert(g.zoomOutBottom <= g.sheetTop, `zoom block (bottom ${g.zoomOutBottom}) is under the sheet (top ${g.sheetTop})`);
+      assert(g.attrBottom === null || g.attrBottom <= g.sheetTop + 2,
+        `attribution (bottom ${g.attrBottom}) is hidden behind the sheet (top ${g.sheetTop}) — CARTO/OSM require it visible`);
+      assert(g.gapAboveZoom >= 0, `control stack overlaps the zoom block by ${-g.gapAboveZoom}px`);
+      const z0 = await m.evaluate(() => window.__ugnayMap.getZoom());
+      await m.locator(".maplibregl-ctrl-zoom-in").click({ timeout: 5000 });
+      await m.waitForTimeout(900);
+      const z1 = await m.evaluate(() => window.__ugnayMap.getZoom());
+      assert(z1 > z0 + 0.1, `zoom-in had no effect on mobile (${z0.toFixed(2)} → ${z1.toFixed(2)})`);
+      return `sheet top ${g.sheetTop}; zoom ends ${g.zoomOutBottom}, attribution ends ${g.attrBottom}; ${g.gapAboveZoom}px above zoom; zoom-in works`;
+    });
+
+    await T("T14.7", "Tapping a node opens a BOTTOM sheet and pans the map up", async () => {
+      const before = await m.evaluate(() => window.__ugnayMap.getCenter().lat);
+      // Pick the LOWEST node that is still on the map — i.e. above the collapsed sheet.
+      // A node under the sheet can't be tapped at all: the tap would hit the sheet.
+      const hit = await m.evaluate(() => {
+        const map = window.__ugnayMap;
+        const sheetTop = document.querySelector(".ugnay-sheet").getBoundingClientRect().top;
+        const rect = document.querySelector(".maplibregl-canvas").getBoundingClientRect();
+        const maxCanvasY = sheetTop - rect.top - 24; // stay clear of the sheet
+        const feats = map.queryRenderedFeatures({ layers: ["nodes-basic", "nodes-higher", "nodes-techvoc"] });
+        let best = null, by = -Infinity;
+        for (const f of feats) {
+          const q = map.project(f.geometry.coordinates);
+          if (q.y > by && q.y < maxCanvasY) { by = q.y; best = f; }
+        }
+        if (!best) return null;
+        const q = map.project(best.geometry.coordinates);
+        return { x: q.x + rect.left, y: q.y + rect.top, canvasY: Math.round(q.y) };
+      });
+      assert(hit, "no tappable node above the sheet");
+      await m.mouse.click(hit.x, hit.y);
+      await m.waitForTimeout(1800);
+      // The <aside> is always mounted and slides on a transform, so "does it exist" and
+      // "how wide is it" prove nothing. Its TOP is what tells you it actually slid in.
+      const drawer = await m.evaluate(() => {
+        const d = document.querySelector("aside");
+        if (!d) return null;
+        const r = d.getBoundingClientRect();
+        return { top: Math.round(r.top), left: Math.round(r.left), width: Math.round(r.width) };
+      });
+      assert(drawer, "detail panel not found");
+      assert(drawer.top < 800, `detail sheet did not slide in (top ${drawer.top}) — the tap selected nothing`);
+      assert(drawer.width >= 380, `detail panel is ${drawer.width}px wide — should be full-width on mobile, not an 18rem side drawer`);
+      assert(drawer.left <= 2, `detail panel is inset from the left (${drawer.left}) — still a side drawer?`);
+      const after = await m.evaluate(() => window.__ugnayMap.getCenter().lat);
+      const panned = Math.abs(after - before) > 1e-6;
+      assert(panned, "map did not pan up; the tapped node stays hidden under the detail sheet");
+      return `full-width bottom sheet (${drawer.width}px, top ${drawer.top}); map panned up to clear it`;
+    });
+
+    await m.close();
+    await mctx.close();
+  }
 
   // ===== summary =====
   log("\n" + "=".repeat(72));

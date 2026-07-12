@@ -9,6 +9,7 @@ import FilterPanel from "./components/FilterPanel";
 import DetailDrawer from "./components/DetailDrawer";
 import Legend from "./components/Legend";
 import ErrorBoundary from "./components/ErrorBoundary";
+import useIsMobile from "./lib/useIsMobile";
 // NOTE: ContinuityPanel (right sidebar) is deactivated for now — lower priority
 // than edges + progression. The component file is kept for later.
 // import ContinuityPanel from "./components/ContinuityPanel";
@@ -48,6 +49,23 @@ const CB_COLORS = {
   hei_public: "#009E73",
   hei_private: "#56B4E9",
   tesda: "#CC79A7",
+};
+
+// Shape is a SECOND encoding channel alongside colour: it survives greyscale printing and
+// stays readable for the ~8% of men with a colour-vision deficiency, where the five fills
+// can collapse into two or three.
+//
+// The default carries meaning rather than being decorative — shape = SECTOR, fill =
+// public/private within it:
+//   DepEd ○   ·   Higher-ed △   ·   TESDA □
+// so a glance at a silhouette tells you the sector even in a dense cluster. Diamond is
+// left unused, free for the user to reassign. Any swatch can be overridden individually.
+const DEFAULT_SHAPES = {
+  public: "circle",
+  private: "circle",
+  hei_public: "triangle",
+  hei_private: "triangle",
+  tesda: "square",
 };
 
 const DEFAULT_SUBCATS = () => ({
@@ -93,7 +111,12 @@ export default function App() {
   const [nodeSize, setNodeSize] = useState(4);
   const [borderWidth, setBorderWidth] = useState(2);
   const [sectorColors, setSectorColors] = useState(DEFAULT_COLORS);
+  const [nodeShapes, setNodeShapes] = useState(DEFAULT_SHAPES);
   const [colorblind, setColorblind] = useState(false);
+
+  // Phones get a different chrome entirely (bottom sheet, no floating panels), so the
+  // layout branches on one shared breakpoint rather than on ad-hoc `sm:` guesses.
+  const isMobile = useIsMobile();
 
   // "Clear map" mode — hides all overlay chrome (header, panels, legend, drawer) so the
   // user can read the map unobstructed. The restore control lives on the map itself.
@@ -173,6 +196,10 @@ export default function App() {
     });
   }, []);
 
+  const handleSectorShape = useCallback((k, shape) => {
+    setNodeShapes((prev) => ({ ...prev, [k]: shape }));
+  }, []);
+
   const handleSectorColor = useCallback((k, c) => {
     setSectorColors((prev) => ({ ...prev, [k]: c }));
   }, []);
@@ -249,71 +276,81 @@ export default function App() {
   return (
     <div className="relative flex flex-col h-screen w-screen bg-gray-50 overflow-hidden">
       {!uiHidden && (
-      <header className="flex items-center gap-3 px-4 py-2 bg-white border-b border-gray-200 z-10 shrink-0">
-        <div className="flex items-center gap-2">
-          <span className="text-lg font-bold text-blue-600">Ugnay</span>
+      <header className="flex items-center gap-3 px-3 sm:px-4 py-2 bg-white border-b border-gray-200 z-10 shrink-0">
+        <div className="flex items-center gap-2 min-w-0">
+          <span className="text-lg font-bold text-blue-600 shrink-0">Ugnay</span>
           <span className="text-xs text-gray-400 hidden sm:inline">Education Institutions Map</span>
         </div>
 
         <button
           onClick={handleChangeArea}
-          className="text-xs rounded px-2 py-1 border border-gray-200 text-gray-600 hover:border-gray-400"
+          className="text-xs rounded px-2 py-1 border border-gray-200 text-gray-600 hover:border-gray-400 shrink-0 whitespace-nowrap"
         >
           ← Change area
         </button>
 
-        {/* Sector layer toggles */}
-        <div className="flex items-center gap-1.5 ml-2">
-          {[
-            ["basic", "Basic", "bg-blue-500"],
-            ["higher", "Higher", "bg-green-500"],
-            ["techvoc", "Tech-Voc", "bg-purple-500"],
-          ].map(([key, label, dot]) => {
-            const on = activeSectors.has(key);
-            return (
+        {/* Sector toggles, gap analysis and basemap are DESKTOP-only here. On a phone they
+            don't fit — they used to overflow and clip off the right edge — so they move
+            into the bottom sheet, where they sit with the other map controls. */}
+        {!isMobile && (
+          <>
+            <div className="flex items-center gap-1.5 ml-2">
+              {[
+                ["basic", "Basic", "bg-blue-500"],
+                ["higher", "Higher", "bg-green-500"],
+                ["techvoc", "Tech-Voc", "bg-purple-500"],
+              ].map(([key, label, dot]) => {
+                const on = activeSectors.has(key);
+                return (
+                  <button
+                    key={key}
+                    onClick={() => handleSectorToggle(key)}
+                    className={`flex items-center gap-1.5 text-xs rounded px-2 py-0.5 border transition-all ${
+                      on ? "bg-gray-800 text-white border-transparent" : "bg-white text-gray-400 border-gray-200"
+                    }`}
+                  >
+                    <span className={`w-2 h-2 rounded-full ${dot} ${on ? "" : "opacity-40"}`} />
+                    {label}
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="flex items-center gap-3 ml-auto">
               <button
-                key={key}
-                onClick={() => handleSectorToggle(key)}
-                className={`flex items-center gap-1.5 text-xs rounded px-2 py-0.5 border transition-all ${
-                  on ? "bg-gray-800 text-white border-transparent" : "bg-white text-gray-400 border-gray-200"
+                onClick={() => setGapVisible((v) => !v)}
+                title="Halo every institution that cannot reach its next level within the distance threshold."
+                className={`text-xs rounded px-2.5 py-1 border transition-all ${
+                  gapVisible
+                    ? "bg-amber-500 text-white border-transparent"
+                    : "bg-white text-gray-500 border-gray-300 hover:border-gray-400"
                 }`}
               >
-                <span className={`w-2 h-2 rounded-full ${dot} ${on ? "" : "opacity-40"}`} />
-                {label}
+                {gapVisible ? "Hide gap analysis" : "Gap analysis"}
               </button>
-            );
-          })}
-        </div>
 
-        <div className="flex items-center gap-3 ml-auto">
-          <button
-            onClick={() => setGapVisible((v) => !v)}
-            title="Halo every institution that cannot reach its next level within the distance threshold."
-            className={`text-xs rounded px-2.5 py-1 border transition-all ${
-              gapVisible
-                ? "bg-amber-500 text-white border-transparent"
-                : "bg-white text-gray-500 border-gray-300 hover:border-gray-400"
-            }`}
-          >
-            {gapVisible ? "Hide gap analysis" : "Gap analysis"}
-          </button>
+              <div className="flex items-center rounded border border-gray-200 overflow-hidden">
+                {["plain", "satellite", "roads"].map((b) => (
+                  <button
+                    key={b}
+                    onClick={() => setBasemap(b)}
+                    className={`text-xs px-2 py-1 capitalize transition-all ${
+                      basemap === b ? "bg-gray-800 text-white" : "bg-white text-gray-500 hover:bg-gray-50"
+                    }`}
+                  >
+                    {b}
+                  </button>
+                ))}
+              </div>
 
-          <div className="flex items-center rounded border border-gray-200 overflow-hidden">
-            {["plain", "satellite", "roads"].map((b) => (
-              <button
-                key={b}
-                onClick={() => setBasemap(b)}
-                className={`text-xs px-2 py-1 capitalize transition-all ${
-                  basemap === b ? "bg-gray-800 text-white" : "bg-white text-gray-500 hover:bg-gray-50"
-                }`}
-              >
-                {b}
-              </button>
-            ))}
-          </div>
+              {anyLoading && <span className="text-xs text-blue-500 animate-pulse">Loading…</span>}
+            </div>
+          </>
+        )}
 
-          {anyLoading && <span className="text-xs text-blue-500 animate-pulse">Loading…</span>}
-        </div>
+        {isMobile && anyLoading && (
+          <span className="text-xs text-blue-500 animate-pulse ml-auto shrink-0">Loading…</span>
+        )}
       </header>
       )}
 
@@ -323,7 +360,9 @@ export default function App() {
           `ugnay-drawer-open` slides MapLibre's own bottom-right zoom controls clear of the
           drawer (see index.css). */}
       <div
-        className={`flex-1 relative overflow-hidden ${selectedNode && !uiHidden ? "ugnay-drawer-open" : ""}`}
+        className={`flex-1 relative overflow-hidden ${
+          selectedNode && !uiHidden && !isMobile ? "ugnay-drawer-open" : ""
+        } ${isMobile ? "ugnay-mobile" : ""}`}
       >
           <ErrorBoundary>
             <MapView
@@ -342,10 +381,12 @@ export default function App() {
               mapStyle={BASEMAPS[basemap]}
               nodeSize={nodeSize}
               sectorColors={sectorColors}
+              nodeShapes={nodeShapes}
               selectedNode={selectedNode}
               onNodeClick={setSelectedNode}
               uiHidden={uiHidden}
               onToggleUiHidden={() => setUiHidden((v) => !v)}
+              isMobile={isMobile}
             />
           </ErrorBoundary>
 
@@ -365,14 +406,25 @@ export default function App() {
             onBorderWidth={setBorderWidth}
             sectorColors={sectorColors}
             onSectorColor={handleSectorColor}
+            nodeShapes={nodeShapes}
+            onSectorShape={handleSectorShape}
             colorblind={colorblind}
             onColorblindToggle={handleColorblindToggle}
+            isMobile={isMobile}
+            onSectorToggle={handleSectorToggle}
+            gapVisible={gapVisible}
+            onGapToggle={() => setGapVisible((v) => !v)}
+            basemap={basemap}
+            onBasemap={setBasemap}
           />
           )}
 
-          {!uiHidden && (
+          {/* On mobile the legend is a TAB inside the bottom sheet — a floating legend and
+              a bottom sheet would fight over the same corner of a small screen. */}
+          {!uiHidden && !isMobile && (
           <Legend
             sectorColors={sectorColors}
+            nodeShapes={nodeShapes}
             gapVisible={gapVisible}
             thresholdKm={thresholdKm}
           />
@@ -396,6 +448,7 @@ export default function App() {
             stats={stats}
             thresholdKm={thresholdKm}
             onClose={() => setSelectedNode(null)}
+            isMobile={isMobile}
           />
           )}
       </div>
@@ -417,6 +470,7 @@ export default function App() {
           onExplore={handleExplore}
           fading={fading}
           instant={!enteredMapRef.current}
+          isMobile={isMobile}
         />
       )}
     </div>

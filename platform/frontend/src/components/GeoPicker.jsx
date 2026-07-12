@@ -7,6 +7,31 @@ function getProvincesForRegion(adminIndex, regionName) {
   return entry ? entry.provinces : [];
 }
 
+// Animates a section between zero height and its natural height. `grid-template-rows`
+// 0fr → 1fr is the one CSS collapse that interpolates to CONTENT height: max-height needs a
+// hard-coded ceiling, which either clips a long province list or makes a short one crawl.
+// The inner div's `min-h-0 overflow-hidden` is load-bearing — without it the grid row
+// refuses to shrink below its content and nothing animates.
+function Collapse({ open, children }) {
+  return (
+    <div
+      // `inert` when closed: the content is still in the DOM (it has to be, or there'd be
+      // nothing to animate), but clipped to zero height. Without this it stays in the
+      // accessibility tree and in the tab order, so a keyboard or screen-reader user would
+      // land on province checkboxes that are, as far as the eye is concerned, not there.
+      inert={!open}
+      aria-hidden={!open}
+      className={`grid transition-[grid-template-rows,opacity] duration-300 ease-out ${
+        open ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0"
+      }`}
+    >
+      <div className="min-h-0 overflow-hidden">
+        <div className="pt-3">{children}</div>
+      </div>
+    </div>
+  );
+}
+
 function getMunicipalitiesForProvince(adminIndex, regionName, provinceName) {
   const provinces = getProvincesForRegion(adminIndex, regionName);
   const entry = provinces.find((p) => p.province === provinceName);
@@ -43,7 +68,7 @@ export default function GeoPicker({
   const isMunicipalPickerActive = selectedProvinces.length === 1;
 
   return (
-    <div className="flex flex-col gap-3">
+    <div className="flex flex-col">
       {/* Region */}
       <div>
         <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">
@@ -61,8 +86,13 @@ export default function GeoPicker({
         </select>
       </div>
 
-      {/* Provinces (multi-select checkboxes) */}
-      {selectedRegion && (
+      {/* Provinces (multi-select checkboxes).
+          The picker used to pop in and out the instant a region changed. It now GROWS:
+          `grid-template-rows: 0fr → 1fr` animates a collapse to the content's true height,
+          which a max-height can't do without a magic number that either clips a long list
+          or crawls for a short one. The child needs `min-h-0` + `overflow-hidden` for the
+          grid row to actually be able to shrink to zero. */}
+      <Collapse open={!!selectedRegion}>
         <div>
           <div className="flex items-center justify-between mb-1">
             <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide">
@@ -113,10 +143,11 @@ export default function GeoPicker({
             )}
           </div>
         </div>
-      )}
+      </Collapse>
 
-      {/* Municipalities (only when single province) */}
-      {isMunicipalPickerActive && (
+      {/* Municipalities (only when a single province is selected) — same growth, so
+          drilling from provincial to municipal reads as one continuous motion. */}
+      <Collapse open={isMunicipalPickerActive}>
         <div>
           <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">
             Municipality / City
@@ -147,15 +178,15 @@ export default function GeoPicker({
             )}
           </div>
         </div>
-      )}
+      </Collapse>
 
-      {selectedRegion && (
+      <Collapse open={!!selectedRegion}>
         <p className="text-xs text-gray-500 bg-blue-50 rounded px-2 py-1">
           All provinces are selected by default (province-wide view). Choose{" "}
           <span className="font-semibold">exactly one province</span> to drill down to specific
           cities/municipalities.
         </p>
-      )}
+      </Collapse>
     </div>
   );
 }

@@ -7,6 +7,64 @@ details: `documentation/deployment.md`.
 
 ---
 
+## 2026-07-12 — mobile redesign + node shapes
+
+### Added
+- **Per-sector node shapes** (circle / square / triangle / diamond), chosen next to each
+  colour swatch in Appearance. Implemented as **SDF symbol layers**: one greyscale image
+  per shape, recoloured at draw time by the same `match` expression the circle layers used,
+  so live colour edits and the colorblind palette keep working untouched.
+  Shape is a **second encoding channel** — it survives greyscale printing and stays readable
+  for colour-vision deficiency, where the five fills can collapse into two or three. The
+  default is meaningful rather than decorative: **shape = sector** (DepEd ○, higher-ed △,
+  TESDA □), **fill = public/private within it**. The legend renders the real marks.
+  - Hover "grow" moves to a ring underneath the node — MapLibre symbol layers cannot read
+    `feature-state`, so the pinned/hover emphasis could not stay on `icon-size`.
+
+### Mobile — a deliberate design, not a shrunken desktop
+Previously the phone view was the desktop view at 390px: the top bar's controls ran off the
+right edge, and two floating panels sat on top of the map.
+- **Header** is now identity + "Change area" only. The sector toggles, gap analysis and
+  basemap switch **move into the sheet** — they are map controls, and a phone has no room
+  for a row of buttons *and* two floating panels.
+- **One bottom sheet**, collapsed to a handle by default, so **94% of the map is visible on
+  arrival**. Opens to ≤70vh with three tabs: **Filters · Appearance · Legend**. The Legend is
+  a tab rather than a second floating panel, which would have fought for the same corner.
+- **Detail view is a bottom sheet** (full-width) instead of an 18rem side drawer, which on a
+  390px screen left a ~100px slit of map. Selecting a node now pans the map **up** to clear
+  it, rather than sideways.
+- **Zoom +/- and the attribution are lifted clear of the sheet.** Attribution must stay
+  visible — CARTO/OSM/Esri require it.
+
+### Fixed
+- **Landing hint told you to do something you couldn't yet do.** With no region chosen it
+  read "Pick at least one province" — but there are no provinces until a region is picked.
+  It now reads **"Pick a region"**, then tracks the selection as before.
+- **The primary action could fall below the fold on mobile.** Choosing a region grew the
+  card and pushed "Explore map →" out of reach behind a nested scroll. The card is now a
+  flex column with a **pinned footer**, so the button is always on screen.
+- **Region selection popped.** The province / municipality sections now **grow** into place
+  (`grid-template-rows: 0fr → 1fr`, which animates to the content's true height — a
+  max-height would need a magic number that clips a long list or crawls for a short one).
+- **The landing card now fades in** — including on first load. The earlier flash fix had
+  removed the fade entirely; only the **backdrop** needs to be opaque from frame one (it's
+  what hides the empty map). The card fades and rises over it, so there is nothing to see
+  through.
+- **Accessibility:** collapsed panels, the collapsed sections, and the closed detail drawer
+  were `aria-hidden` while still holding focusable controls — an ARIA violation that let a
+  keyboard user tab into panels that, as far as they were told, did not exist. All are now
+  `inert`. Enforced by a test rule: *no `aria-hidden` container may contain focusable
+  controls.*
+
+### Tests
+- **41/41** passing, including new **T9.5** (shapes), **T9.6** (shape images survive a
+  basemap switch — `setStyle` drops every image the app added, and without re-registering
+  them on `style.load` every institution silently vanishes), and the **T14 mobile group**
+  (T14.1–T14.7: reachable primary action, the hint, header overflow, sheet collapsed by
+  default, sheet contents, zoom/attribution clearance, bottom-sheet detail + pan-up).
+
+---
+
 ## 2026-07-12 — `6430acb` (second deploy)
 
 First change shipped through the push-to-deploy CI. Live ~90 s after the push.

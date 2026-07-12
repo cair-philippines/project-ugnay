@@ -105,6 +105,39 @@ body {
   transform: translateX(-18rem);
 }
 
+/* ---------------------------------------------------------------- mobile (< sm)
+
+   The bottom sheet owns the bottom edge of the screen, so everything MapLibre pins there
+   has to move up out of its way. Two things live down there:
+
+     · the zoom +/- block — unusable if the sheet's handle covers it
+     · the attribution    — CARTO/OSM/Esri require it to stay VISIBLE, so it cannot simply
+                            be left underneath the sheet
+
+   Both sit in `.maplibregl-ctrl-bottom-right`, so one lift handles them together. 4.5rem
+   clears the collapsed handle (~3.5rem) with room to spare. Our own control stack sits at
+   `bottom-32` (8rem) and gets lifted by the same amount, preserving the 16px gap above the
+   zoom block that T10.4 guards.
+
+   When the sheet is EXPANDED it covers these — which is fine and expected: the user opened
+   it, and collapsing it is one tap. */
+@media (max-width: 639px) {
+  .ugnay-mobile .maplibregl-ctrl-bottom-right {
+    transform: translateY(-4.5rem);
+  }
+
+  /* The stack keeps its desktop offset and rides the same lift, so the 16px gap above the
+     zoom block (T10.4) is preserved rather than re-derived. */
+  .ugnay-mobile .ugnay-map-controls {
+    transform: translateY(-4.5rem);
+  }
+}
+
+/* The sheet must clear the iOS home indicator, or its last row sits under the gesture bar. */
+.ugnay-sheet {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
 /* Motion is decoration here — never let it get in the way of someone who has asked the
    OS to reduce it. */
 @media (prefers-reduced-motion: reduce) {

@@ -2,6 +2,7 @@ import { useMemo, useState, useCallback, useEffect, useRef } from "react";
 import Map, { Source, Layer, Popup, NavigationControl } from "react-map-gl/maplibre";
 import { LocateFixed, Eye, EyeOff } from "lucide-react";
 import { accessibilityEdges, fillKey, gapStatus, nodeDimmed } from "../lib/graph";
+import { addShapeImages, iconSizeFor, shapeImageId } from "../lib/nodeShapes";
 import InstitutionCard from "./InstitutionCard";
 
 const INITIAL_VIEW_STATE = {
@@ -14,9 +15,11 @@ const INITIAL_VIEW_STATE = {
 
 const EMPTY_FC = { type: "FeatureCollection", features: [] };
 
-// Keep in step with DetailDrawer's `w-72` (18rem). EDGE_MARGIN keeps a selected node off
-// the drawer's very edge, so its edge fan still has room to fan out.
+// Keep in step with DetailDrawer: `w-72` (18rem) as a right drawer on desktop, `h-[60vh]`
+// as a bottom sheet on mobile. EDGE_MARGIN keeps a selected node off the panel's very
+// edge, so its edge fan still has room to fan out.
 const DRAWER_W = 288;
+const SHEET_H = Math.round((typeof window !== "undefined" ? window.innerHeight : 800) * 0.6);
 const EDGE_MARGIN = 72;
 
 // line-cap/line-join are LAYOUT properties. In `paint`, MapLibre silently rejects the
@@ -69,10 +72,12 @@ export default function MapView({
   mapStyle,
   nodeSize,
   sectorColors,
+  nodeShapes,
   selectedNode,
   onNodeClick,
   uiHidden,
   onToggleUiHidden,
+  isMobile = false,
 }) {
   const [viewState, setViewState] = useState(INITIAL_VIEW_STATE);
   const [hoverNode, setHoverNode] = useState(null);
@@ -151,24 +156,51 @@ export default function MapView({
     ];
   }, [selId, connectedIds]);
 
-  const paintFor = useMemo(
+  // Which SDF image each fill bucket draws with. The user picks a shape per swatch, so
+  // this is the shape twin of `colorExpr` and is keyed the same way.
+  const iconExpr = useMemo(
+    () => [
+      "match",
+      ["get", "fill"],
+      "public", shapeImageId(nodeShapes.public),
+      "private", shapeImageId(nodeShapes.private),
+      "hei_public", shapeImageId(nodeShapes.hei_public),
+      "hei_private", shapeImageId(nodeShapes.hei_private),
+      "tesda", shapeImageId(nodeShapes.tesda),
+      shapeImageId("circle"),
+    ],
+    [nodeShapes]
+  );
+
+  // Symbol layers can't read feature-state (MapLibre supports it on circle/line/fill only),
+  // so the pinned node's emphasis rides an expression on node_id — which it already did —
+  // and the *hover* grow moves to a separate circle ring underneath (see `nodes-hover`).
+  const symbolLayout = useMemo(
     () => ({
-      "circle-color": colorExpr,
-      "circle-radius": [
+      "icon-image": iconExpr,
+      "icon-size": [
         "case",
-        ["==", ["get", "node_id"], selId], nodeSize + 4,
-        ["boolean", ["feature-state", "hover"], false], nodeSize + 1,
-        nodeSize,
+        ["==", ["get", "node_id"], selId], iconSizeFor(nodeSize + 4),
+        iconSizeFor(nodeSize),
       ],
-      "circle-radius-transition": { duration: 180 },
-      "circle-opacity": nodeOpacityExpr,
-      "circle-opacity-transition": { duration: 260 },
-      "circle-stroke-color": ["case", ["==", ["get", "node_id"], selId], "#1e293b", "#ffffff"],
-      "circle-stroke-width": ["case", ["==", ["get", "node_id"], selId], 3, 1],
-      "circle-stroke-opacity": ["case", ["get", "dim"], 0.25, 1],
-      "circle-stroke-opacity-transition": { duration: 260 },
+      // Institutions are points of fact, not labels: never let MapLibre declutter one away.
+      "icon-allow-overlap": true,
+      "icon-ignore-placement": true,
     }),
-    [colorExpr, selId, nodeSize, nodeOpacityExpr]
+    [iconExpr, selId, nodeSize]
+  );
+
+  const symbolPaint = useMemo(
+    () => ({
+      "icon-color": colorExpr,
+      "icon-opacity": nodeOpacityExpr,
+      "icon-opacity-transition": { duration: 260 },
+      // The old circle-stroke: white hairline normally, dark ring when pinned.
+      "icon-halo-color": ["case", ["==", ["get", "node_id"], selId], "#1e293b", "#ffffff"],
+      "icon-halo-width": ["case", ["==", ["get", "node_id"], selId], 2.4, 1],
+      "icon-halo-blur": 0,
+    }),
+    [colorExpr, selId, nodeOpacityExpr]
   );
 
   const fitKey =
@@ -195,6 +227,19 @@ export default function MapView({
     if (map && typeof window !== "undefined") window.__ugnayMap = map; // probe hook
   }, [ready]);
 
+  // Register the shape images, and RE-register them on every style load. `setStyle` (i.e.
+  // every basemap switch) throws away all images the app added; react-map-gl re-adds our
+  // sources and layers for us, but not our images — so without this the symbol layers
+  // would reference missing icons and every institution would vanish on the first switch.
+  useEffect(() => {
+    const map = mapRef.current?.getMap();
+    if (!map) return;
+    addShapeImages(map);
+    const onStyle = () => addShapeImages(map);
+    map.on("style.load", onStyle);
+    return () => map.off("style.load", onStyle);
+  }, [ready]);
+
   // NOTE: no ResizeObserver here. MapLibre already runs one on its own container
   // (`trackResize`, on by default), so a second one just doubled every resize — and each
   // resize reallocates and clears the WebGL buffer. The drawer no longer resizes the map
@@ -207,11 +252,20 @@ export default function MapView({
   useEffect(() => {
     const map = mapRef.current?.getMap();
     if (!map || !selectedNode) return;
-    const openWidth = map.getContainer().clientWidth - DRAWER_W;
-    const { x } = map.project([selectedNode.lon, selectedNode.lat]);
+    const box = map.getContainer();
+    const { x, y } = map.project([selectedNode.lon, selectedNode.lat]);
+    if (isMobile) {
+      // On mobile the detail view is a BOTTOM sheet, so the node hides below, not behind:
+      // pan up by however far it sits into the sheet.
+      const clearHeight = box.clientHeight - SHEET_H;
+      const overshoot = y - (clearHeight - EDGE_MARGIN);
+      if (overshoot > 0) map.panBy([0, overshoot], { duration: 380 });
+      return;
+    }
+    const openWidth = box.clientWidth - DRAWER_W;
     const overshoot = x - (openWidth - EDGE_MARGIN);
     if (overshoot > 0) map.panBy([overshoot, 0], { duration: 380 });
-  }, [selectedNode]);
+  }, [selectedNode, isMobile]);
 
   const handleClick = useCallback(
     (e) => {
@@ -332,8 +386,10 @@ export default function MapView({
         />
       </Source>
 
-      {/* Nodes. Halos sit underneath so the sector fill always reads on top.
-          Z-order: halo → basic → higher → tech-voc (rarer sectors never buried). */}
+      {/* Nodes. Rings sit underneath so the sector shape always reads on top.
+          Z-order: gap halo → hover ring → basic → higher → tech-voc (rarer sectors are
+          never buried). The three sector layers are symbol layers so each fill bucket can
+          carry its own SHAPE; they share one layout/paint pair. */}
       <Source id="nodes" type="geojson" data={nodesFC} generateId>
         <Layer
           id="nodes-halo"
@@ -347,14 +403,46 @@ export default function MapView({
             "circle-stroke-opacity": 0.9,
           }}
         />
+        {/* Hover feedback. The nodes themselves are symbols now and symbols can't read
+            feature-state, so the "grow on hover" becomes a ring that fades in under the
+            node — same signal, and it works for every shape. */}
+        <Layer
+          id="nodes-hover"
+          type="circle"
+          paint={{
+            "circle-radius": nodeSize + 3.5,
+            "circle-color": "rgba(0,0,0,0)",
+            "circle-stroke-color": "#1e293b",
+            "circle-stroke-width": 1.6,
+            "circle-stroke-opacity": [
+              "case",
+              ["boolean", ["feature-state", "hover"], false], 0.55,
+              0,
+            ],
+            "circle-stroke-opacity-transition": { duration: 140 },
+          }}
+        />
         <Layer
           id="nodes-basic"
-          type="circle"
+          type="symbol"
           filter={["in", ["get", "source"], ["literal", ["public", "private"]]]}
-          paint={paintFor}
+          layout={symbolLayout}
+          paint={symbolPaint}
         />
-        <Layer id="nodes-higher" type="circle" filter={["==", ["get", "source"], "hei"]} paint={paintFor} />
-        <Layer id="nodes-techvoc" type="circle" filter={["==", ["get", "source"], "tesda"]} paint={paintFor} />
+        <Layer
+          id="nodes-higher"
+          type="symbol"
+          filter={["==", ["get", "source"], "hei"]}
+          layout={symbolLayout}
+          paint={symbolPaint}
+        />
+        <Layer
+          id="nodes-techvoc"
+          type="symbol"
+          filter={["==", ["get", "source"], "tesda"]}
+          layout={symbolLayout}
+          paint={symbolPaint}
+        />
       </Source>
 
       {/* Hover: transient card, no close button. */}

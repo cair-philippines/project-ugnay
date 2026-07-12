@@ -43,19 +43,31 @@ export default function SetupView({
   const hasSector = activeSectors.size >= 1;
   const canExplore = hasArea && hasSector;
 
-  // Fade IN on "Change area" re-entry, so the landing page doesn't pop abruptly over the
-  // live map. But on the FIRST load (`instant`) appear immediately: there, fading in from
-  // transparent revealed the empty map behind the overlay for a frame — the load "flash".
-  const [entered, setEntered] = useState(instant);
+  // Two layers, deliberately out of step — this is what makes the entrance elegant WITHOUT
+  // reintroducing the load flash:
+  //
+  //   BACKDROP — opaque from the very first painted frame on first load (`instant`). It's
+  //              the only thing standing between the user and the empty map, so it must
+  //              never be transparent; fading it in is exactly what caused the flash.
+  //   CARD     — always fades and rises in, first load included. It has the backdrop behind
+  //              it, so there is nothing to see through it.
+  //
+  // On "Change area" re-entry the backdrop fades too, since it's arriving over a live map
+  // and popping would be jarring.
+  const [entered, setEntered] = useState(false);
   useEffect(() => {
-    if (instant) return;
     const id = requestAnimationFrame(() => setEntered(true));
     return () => cancelAnimationFrame(id);
-  }, [instant]);
+  }, []);
   const shown = entered && !fading;
+  const backdropShown = (instant || entered) && !fading;
 
-  const scopeHint =
-    selectedProvinces.length >= 2
+  // The hint tracks where the user actually IS. Before a region is chosen there are no
+  // provinces to pick, so "Pick at least one province" was telling them to do something
+  // they couldn't yet do; the first instruction has to be the first action.
+  const scopeHint = !selectedRegion
+    ? "Pick a region"
+    : selectedProvinces.length >= 2
       ? `Province-wide — all institutions across ${selectedProvinces.length} provinces`
       : selectedProvinces.length === 1
         ? selectedMunicipalities.length >= 1
@@ -66,14 +78,20 @@ export default function SetupView({
   return (
     <div
       className={`absolute inset-0 z-20 flex items-center justify-center bg-gradient-to-br from-slate-50 to-blue-50 transition-opacity duration-300 ease-out ${
-        shown ? "opacity-100" : "opacity-0"
+        backdropShown ? "opacity-100" : "opacity-0"
       }`}
     >
+      {/* The card is a flex COLUMN: only the middle scrolls, and the Explore button lives in
+          a pinned footer. Previously the whole card was one scroll box, so on a phone —
+          once a region was chosen and the province list appeared — the button fell below
+          the fold and you had to scroll a nested container to reach it. The primary action
+          must never be something you have to go looking for. */}
       <div
-        className={`w-full max-w-lg bg-white rounded-2xl shadow-xl border border-gray-100 p-7 m-4 max-h-[92vh] overflow-y-auto transition-all duration-300 ease-out ${
-          shown ? "opacity-100 translate-y-0 scale-100" : "opacity-0 translate-y-2 scale-[0.98]"
+        className={`w-full max-w-lg bg-white rounded-2xl shadow-xl border border-gray-100 m-4 max-h-[92vh] flex flex-col transition-all duration-500 ease-out ${
+          shown ? "opacity-100 translate-y-0 scale-100" : "opacity-0 translate-y-3 scale-[0.98]"
         }`}
       >
+      <div className="overflow-y-auto overscroll-contain px-6 sm:px-7 pt-6 sm:pt-7 pb-2">
         <div className="mb-5">
           <div className="flex items-center gap-2">
             <span className="text-2xl font-bold text-blue-600">Ugnay</span>
@@ -151,10 +169,14 @@ export default function SetupView({
           </div>
         </div>
 
+      </div>
+
+      {/* Pinned footer — always on screen, whatever the list above is doing. */}
+      <div className="shrink-0 px-6 sm:px-7 pt-3 pb-6 sm:pb-7 border-t border-gray-100 bg-white rounded-b-2xl">
         <button
           onClick={onExplore}
           disabled={!canExplore}
-          className={`w-full rounded-lg py-2.5 text-sm font-semibold transition-all ${
+          className={`w-full rounded-lg py-3 sm:py-2.5 text-sm font-semibold transition-all ${
             canExplore
               ? "bg-blue-600 text-white hover:bg-blue-700 shadow-sm"
               : "bg-gray-100 text-gray-400 cursor-not-allowed"
@@ -164,9 +186,12 @@ export default function SetupView({
         </button>
         {!canExplore && (
           <p className="text-xs text-gray-400 text-center mt-2">
-            Select an area and at least one sector to continue.
+            {!selectedRegion
+              ? "Choose a region to begin."
+              : "Select an area and at least one sector to continue."}
           </p>
         )}
+      </div>
       </div>
     </div>
   );
