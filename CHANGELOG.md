@@ -7,7 +7,44 @@ details: `documentation/deployment.md`.
 
 ---
 
-## 2026-07-12
+## 2026-07-12 — `6430acb` (second deploy)
+
+First change shipped through the push-to-deploy CI. Live ~90 s after the push.
+
+### Fixed
+- **The zoom-in button was unclickable in production.** The re-center / hide-UI stack shipped
+  earlier today sat at `bottom-20`, which placed it *directly on top of* MapLibre's
+  zoom-**IN** button: the "+" icon was hidden and every click on it hit the hide-UI button
+  instead (a 32 px overlap; a hit-test at the centre of "+" returned the custom stack). Moved
+  the stack to `bottom-32` (8 rem), clearing MapLibre's zoom block by 16 px. Reproduced and
+  fixed at 1440×900, on a 390×844 phone viewport, and with the detail drawer open (the
+  −18 rem slide preserves the vertical gap).
+
+### Added
+- **`tests/e2e/`** — a Playwright runner implementing `TESTS.md` (32 browser scenarios; the
+  served-artifact contract is checked with `curl`). Run it with
+  `cd tests/e2e && npm install && npm run test:prod`.
+- **`TESTS.md`**: new regression test **T10.4** (the custom controls must never cover the
+  zoom +/-, and both zoom buttons must actually change the zoom), plus a "gotchas" section
+  recording four traps that produce *false* test results: canvas-relative vs viewport-relative
+  click coordinates (the ~45 px header offset), `map.jumpTo()` being inert under
+  react-map-gl's controlled mode, accessible names being the raw DOM text rather than the
+  CSS-transformed text (`plain`/`satellite`/`roads`, not "Plain"…), and province/municipality
+  name collisions (e.g. *Quezon City*).
+
+### Verified (against the deployed build)
+- **32/32** browser scenarios pass, **zero console errors**; the served-artifact contract is
+  intact (`admin_index.json` and tiles return JSON with `no-cache`, boundaries return
+  `application/geo+json`, the SPA fallback returns HTML, both bundles 200).
+- T10.4 failed against the previous build and passes against this one — the bug and the fix
+  are both confirmed on the live site.
+- The regression tests were negative-controlled: re-introducing the load flash, the snappy
+  panel, and the integer slider each makes the corresponding test fail, so the green run is
+  meaningful rather than vacuous.
+
+---
+
+## 2026-07-12 — initial deploy
 
 ### Deployed
 - **Initial production deployment** to Firebase Hosting on GCP project `ecair-eics-project`
@@ -39,21 +76,13 @@ details: `documentation/deployment.md`.
 - `prepare_deploy.sh` now also stages `output/boundaries/` into `dist/` (previously only
   tiles, which 404'd the admin borders in production).
 
-### Fixed (post-deploy, found by the E2E run)
-- **Zoom-in button was unclickable.** The new re-center / hide-UI stack was positioned at
-  `bottom-20`, which placed it *directly on top of* MapLibre's zoom-**IN** button: the icon
-  was hidden and every click on it hit the hide-UI button instead. Moved the stack to
-  `bottom-32` (8 rem), clearing MapLibre's zoom block by 16 px. Verified at 1440×900, on a
-  phone viewport, and with the detail drawer open. Covered by new regression test **T10.4**.
+### Known issue at the time (fixed in `6430acb`, above)
+- The new control stack covered MapLibre's zoom-in button, making it unclickable. This
+  shipped in the initial deploy and was caught by the first full E2E run against production.
 
-### Added (testing)
-- **`tests/e2e/`** — a Playwright runner implementing `TESTS.md` (32 browser scenarios +
-  the served-artifact contract). `cd tests/e2e && npm install && npm run test:prod`.
-- `TESTS.md` gains T10.4 and a "gotchas" section (canvas-vs-viewport click coords;
-  `jumpTo()` is inert under react-map-gl's controlled mode; accessible names are the raw
-  DOM text, not the CSS-transformed text; province/municipality name collisions).
+---
 
-### Pending
+## Pending
 - **Per-sector node shapes** (circle / square / triangle / diamond) via SDF symbol
   layers — next change.
 - Custom domain `ugnay.cair.ph`; delete the stray `ecair-eics-project-537f7` project;

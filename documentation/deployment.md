@@ -113,12 +113,29 @@ firebase hosting:rollback --project ecair-eics-project     # or use the Hosting 
 ```
 
 ### 5.5 Verify a deploy
+
+**Quick smoke test** (is it serving at all?):
 ```bash
 BASE=https://ecair-eics-project.web.app
 curl -s -o /dev/null -w "SPA %{http_code}\n" $BASE/
 curl -s -D - -o /dev/null $BASE/tiles/admin_index.json | grep -iE "^HTTP|content-type|cache-control"
 ```
-See `TESTS.md` (T11) for the full served-artifact contract check.
+
+**Full verification** (do the features actually work?) — run the E2E suite against production:
+```bash
+cd tests/e2e && npm install && npm run test:prod
+```
+This drives a real browser through all of `TESTS.md` (32 scenarios) and asserts on live map
+state. **Do this after any UI deploy.** The first such run caught a shipped bug that no
+`curl` check could see: the new map-control stack was sitting on top of MapLibre's zoom-in
+button, making it unclickable.
+
+To confirm a *new* build is actually live (CI takes ~90 s), watch for the bundle hash to
+change:
+```bash
+curl -s $BASE/ | grep -oE 'index-[A-Za-z0-9_-]+\.js'
+```
+See `TESTS.md` (T11) for the served-artifact contract check on its own.
 
 ---
 
