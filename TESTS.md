@@ -21,8 +21,42 @@ Point Playwright at whichever is being tested:
 
 > The dev/preview servers must run inside `experiments-innovations-lab` (the only container with ports mapped to the host). Production needs no local server.
 
-### Playwright MCP
-The Playwright browser runs inside `experiments-innovations-lab`. If navigating to a **host** URL (e.g. `172.17.0.2:5173`) rather than the public HTTPS URL, connect the docker bridge first (idempotent):
+### Automated runner (`tests/e2e/`)
+The whole suite below is implemented as a script. From `tests/e2e/`:
+```bash
+npm install                 # playwright-core only; reuses the cached Chromium
+npm run test:prod           # against https://ecair-eics-project.web.app
+node suite.cjs http://localhost:5173   # or any other target
+```
+It needs a Chromium binary. If Playwright's browser cache is present, point at it:
+`~/.cache/ms-playwright/chromium-*/chrome-linux/chrome` (the script already does). In a
+container, launch with `--no-sandbox --use-gl=swiftshader --enable-unsafe-swiftshader` so
+WebGL renders in software — MapLibre then draws for real and map assertions are meaningful.
+
+### Four gotchas that will silently break your tests
+Each of these produced a *false* result before being fixed — they cost real debugging time:
+
+1. **Map pixels ≠ page pixels.** `map.project()` is relative to the **canvas**, which sits
+   *below* the ~45 px header. `page.mouse.click()` takes **viewport** coords. Add the canvas's
+   `getBoundingClientRect()` origin or every node click lands high and misses — silently, since
+   clicking empty map is a no-op.
+2. **`map.jumpTo()` from `evaluate()` does nothing.** react-map-gl drives the map in
+   *controlled* mode, so programmatic camera moves are reverted. Pan with a **real gesture**
+   (`mouse.down`/`move`/`up`) or via the app's own controls.
+3. **Accessible names are the raw DOM text, not what you see.** The basemap buttons' text is
+   `plain`/`satellite`/`roads` (CSS `capitalize` renders them "Plain"…), and "LEGEND" is
+   CSS-uppercased. `getByRole("button", { name: "Satellite" })` matches **nothing**. Use a
+   case-insensitive regex.
+4. **The same name can be both a province and a municipality** (e.g. *Quezon City* in NCR).
+   Province checkboxes render before municipality ones — disambiguate with `.first()` / `.last()`.
+
+Also: **assert on state, not on text that is always present.** The detail drawer is always
+mounted (it slides in on a transform), so its "INSTITUTION" heading is in the DOM even with
+nothing selected. Test drawer-open via the `.ugnay-drawer-open` class, not its text.
+
+### Playwright MCP (alternative)
+If using the MCP browser inside `experiments-innovations-lab` and navigating to a **host** URL
+(e.g. `172.17.0.2:5173`) rather than the public HTTPS URL, connect the docker bridge first:
 ```bash
 docker network connect bridge experiments-innovations-lab
 ```
@@ -355,6 +389,29 @@ Use a small, dense area for speed (e.g. a single municipality) and one large one
 
 ---
 
+### T10.4 Custom controls must not cover the zoom +/- (regression for the 2026-07-12 overlap bug)
+**Why:** the re-center/hide stack is positioned by a hand-picked offset above MapLibre's zoom
+block. At `bottom-20` it sat **directly on top of the zoom-IN button**, which was rendered
+completely unclickable — the icon was hidden and clicks hit the hide-UI button instead.
+
+**Steps:**
+1. In the map view, measure the gap between the bottom of `.ugnay-map-controls` and the top of
+   `.maplibregl-ctrl-zoom-in`.
+2. Click zoom **+**, then zoom **−**.
+
+**Expected:**
+- The gap is **≥ 0** (currently 16 px at `bottom-32`), and `document.elementFromPoint()` at the
+  centre of the zoom-in button returns the **zoom button**, not `.ugnay-map-controls`.
+- Both zoom buttons are clickable and actually change `map.getZoom()`.
+- Holds at 1440×900 **and** on a phone viewport, and with the detail drawer open (the −18 rem
+  shift preserves the vertical gap).
+
+**What to check if broken:** the `bottom-*` class on `.ugnay-map-controls` in `MapView.jsx`.
+MapLibre's zoom block's top edge sits ~112 px above the map's bottom edge, so the stack needs
+≥ `bottom-32` (8 rem). Re-check if either stack gains a button.
+
+---
+
 ## T11 — Served-Artifact Contract (data tests, `curl`)
 
 Run against the target's origin (examples use production).
@@ -436,6 +493,7 @@ Run after every deploy (quick pass):
 | **Node size continuous** | Appearance tab | 0.25 px steps, fractional readout |
 | **Re-center button** | Map, bottom-right | Refits view to the area |
 | **Hide-UI toggle** | Map, bottom-right | Hides all chrome; persistent restore button; icon flips |
+| **Zoom +/- not covered** | Map, bottom-right | Custom stack clears the zoom block; **+** and **−** both click |
 | Data paths not swallowed | `curl` | `/tiles/*.json` returns JSON, not HTML |
 | No horizontal body scroll | Any viewport | Page body never scrolls sideways |
 

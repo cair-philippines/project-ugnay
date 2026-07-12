@@ -39,6 +39,20 @@ details: `documentation/deployment.md`.
 - `prepare_deploy.sh` now also stages `output/boundaries/` into `dist/` (previously only
   tiles, which 404'd the admin borders in production).
 
+### Fixed (post-deploy, found by the E2E run)
+- **Zoom-in button was unclickable.** The new re-center / hide-UI stack was positioned at
+  `bottom-20`, which placed it *directly on top of* MapLibre's zoom-**IN** button: the icon
+  was hidden and every click on it hit the hide-UI button instead. Moved the stack to
+  `bottom-32` (8 rem), clearing MapLibre's zoom block by 16 px. Verified at 1440×900, on a
+  phone viewport, and with the detail drawer open. Covered by new regression test **T10.4**.
+
+### Added (testing)
+- **`tests/e2e/`** — a Playwright runner implementing `TESTS.md` (32 browser scenarios +
+  the served-artifact contract). `cd tests/e2e && npm install && npm run test:prod`.
+- `TESTS.md` gains T10.4 and a "gotchas" section (canvas-vs-viewport click coords;
+  `jumpTo()` is inert under react-map-gl's controlled mode; accessible names are the raw
+  DOM text, not the CSS-transformed text; province/municipality name collisions).
+
 ### Pending
 - **Per-sector node shapes** (circle / square / triangle / diamond) via SDF symbol
   layers — next change.

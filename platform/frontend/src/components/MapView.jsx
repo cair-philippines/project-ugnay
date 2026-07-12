@@ -280,8 +280,11 @@ export default function MapView({
 
       {/* Persistent map controls, stacked above MapLibre's own zoom +/-. These stay on
           screen even in clear-map mode, so the UI is always recoverable. Shifts with the
-          drawer via `.ugnay-map-controls` in index.css, matching the zoom control. */}
-      <div className="ugnay-map-controls absolute right-2.5 bottom-20 z-10 flex flex-col gap-2">
+          drawer via `.ugnay-map-controls` in index.css, matching the zoom control.
+          bottom-32 (8rem) clears MapLibre's zoom block, whose top edge sits ~112px above
+          the map's bottom edge: at bottom-20 this stack covered the zoom-IN button
+          outright and made it unclickable. Keep ≥ 8rem if either stack changes height. */}
+      <div className="ugnay-map-controls absolute right-2.5 bottom-32 z-10 flex flex-col gap-2">
         <button
           onClick={recenter}
           title="Re-center on this area"

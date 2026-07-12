@@ -1,0 +1,11 @@
+{
+  "name": "ugnay-e2e",
+  "private": true,
+  "description": "Playwright runner for TESTS.md — see ../../TESTS.md",
+  "scripts": {
+    "test": "node suite.cjs",
+    "test:prod": "node suite.cjs https://ecair-eics-project.web.app",
+    "test:dev": "node suite.cjs http://localhost:5173"
+  },
+  "dependencies": { "playwright-core": "^1.56.0" }
+}
