@@ -4,6 +4,11 @@
 
 **Status of the app itself:** the pipeline and frontend run end-to-end against real nationwide data on the local Vite dev server. Nothing about deployment has been done yet. This is a greenfield deploy.
 
+**Confirmed by the project owner (2026-07-12):**
+- **Public URL / custom domain:** `ugnay.cair.ph`.
+- **GCP project:** `ecair-eics-project` — the deployment lives here (Firebase is enabled on this existing GCP project; a Firebase project *is* a GCP project).
+- **Reuse the `platform_aral` GCP playbook** wherever it applies — see "Reusing platform_aral's practices" under §4.
+
 ---
 
 ## 0. TL;DR
@@ -70,15 +75,17 @@ cp -r ../../output/boundaries dist/boundaries         # MISSING — add this
 
 **⚠️ Where do the artifacts come from in CI?** This is the key decision. `output/**` is **gitignored** (correctly — 180 MB shouldn't live in git), so a fresh `git clone` on a GitHub Actions runner will **not** have the tiles/boundaries, and it **cannot regenerate them** — S2b needs a running **OSRM** server and the four source coordinate parquets, neither of which exist on a vanilla runner. Options to resolve:
 - **(A) Deploy from a machine that already has `output/`** (e.g. the workstation that ran the pipeline) — simplest for the demo; `firebase deploy` from there.
-- **(B) Sync artifacts from GCS in CI** — the pipeline already uploads outputs to `gs://data_ecair_paaral/ugnay/…`; a CI job authenticates to GCS, pulls `tiles/` + `boundaries/`, then deploys. Cleanest for repeatable CI.
+- **(B) Sync artifacts from GCS in CI** — a CI job authenticates to GCS, pulls `tiles/` + `boundaries/`, then deploys. Cleanest for repeatable CI. **This is exactly how `platform_aral` solved the same problem:** its gitignored analytics parquets live in `gs://ecair-aral-platform-snapshots/`, kept current with `gcloud storage rsync -r <local> gs://…`, and the GitHub Actions workflow downloads them **before** the build so they're baked into the deploy. Mirror it: create a bucket in `ecair-eics-project` (e.g. `gs://ecair-ugnay-tiles/`), `rsync` `output/tiles` + `output/boundaries` into it after each pipeline run, and have CI pull from it before `firebase deploy`.
 - **(C) Store artifacts in a deploy branch / release asset** and have CI fetch them.
-Recommend **(A)** for the first public deploy, **(B)** as the durable CI path (mirrors how `platform_aral` handled its build → deploy).
+Recommend **(A)** for the first public deploy, **(B)** as the durable CI path (the proven `platform_aral` pattern).
 
 ---
 
 ## 4. Firebase shape (starting point — verify in the thread)
 
-Target per the implementation plan: **Firebase Hosting** at **`ugnay.cair.ph`**, deployed via **GitHub Actions** mirroring the `platform_aral` CI pattern. A minimal `firebase.json` to start from:
+**Firebase Hosting** on the `ecair-eics-project` GCP project, custom domain **`ugnay.cair.ph`**, deployed via **GitHub Actions**.
+
+**Why Firebase Hosting and not Cloud Run (which is what `platform_aral` uses):** ARAL runs on Cloud Run because it has a live FastAPI backend + Postgres. Ugnay has **neither** — it is pure static files — so Firebase Hosting is the better fit: purpose-built for static + global CDN, no container/Terraform machinery, cheaper, simpler. Both sit inside the same GCP project, so this is consistent, not a departure. (If org policy ever mandates one substrate for everything, Cloud Run *can* serve static via a container — but don't take on that complexity without a reason.) A minimal `firebase.json` to start from:
 
 ```jsonc
 {
@@ -103,6 +110,15 @@ Target per the implementation plan: **Firebase Hosting** at **`ugnay.cair.ph`**,
 ```
 `no-cache` (revalidate every load) is the safe default; if you'd rather cache aggressively for speed, switch to a **versioned data path** (e.g. deploy under `/tiles/<build>/…` and bake the version into the fetch base) so a rerun never serves stale data. Firebase purges changed files on each deploy, so `no-cache` + redeploy is already correct for most cases.
 
+### Reusing platform_aral's practices
+
+ARAL is the sister project with a working `cair-philippines` → GCP deploy. What transfers to Ugnay:
+
+- **✅ Gitignored artifacts in GCS, pulled in CI before deploy** — the single most useful pattern to copy (see §3, option B). ARAL's parquets live in `gs://ecair-aral-platform-snapshots/`, `rsync`'d up and downloaded in the workflow before build. Do the same for `output/tiles` + `output/boundaries`.
+- **✅ GitHub Actions triggered by a branch push**, authenticating to GCP with a service-account credential stored as a repo secret. Same `cair-philippines` org, same SSH key location (`/workspace/innovation-projects/.ssh/id_ed25519`) as documented for this repo.
+- **✅ Env-configurable data paths** — ARAL resolves data dirs from env vars first (`config.py::_resolve()`). The analogue here: if tiles/boundaries move to a separate bucket/CDN (§5), make the frontend's `TILES_BASE` / boundary `FILES` read from a build-time env var (`import.meta.env.VITE_TILES_BASE`) instead of the hardcoded `/tiles`, `/boundaries`.
+- **⚠️ Does NOT apply (ARAL-specific because it uses Cloud Run + Terraform + Docker):** the Docker image build/push, Terraform, Postgres/Alembic — and therefore ARAL's **mutable-tag deploy bug** (Terraform saw no diff on a fixed `:dev` image tag and silently skipped every redeploy). Firebase Hosting has no image tags, so this class of "deploy succeeded but nothing changed" bug doesn't exist here. *Only* relevant if the thread chooses Cloud Run instead of Hosting — in which case, re-read ARAL's fix (pin the `sha256` digest per deploy).
+
 ---
 
 ## 5. Plan / cost
@@ -126,8 +142,8 @@ Target per the implementation plan: **Firebase Hosting** at **`ugnay.cair.ph`**,
 
 ## 7. Open decisions for the deployment thread to resolve
 
-1. **Firebase project** — which GCP/Firebase project + billing account; who owns it (`cair.ph`).
-2. **Domain** — confirm `ugnay.cair.ph`, DNS control, TLS (Firebase auto-provisions).
+1. ~~**Firebase project**~~ — **RESOLVED: `ecair-eics-project`** (enable Firebase Hosting on it; confirm billing account is attached).
+2. ~~**Domain**~~ — **RESOLVED: `ugnay.cair.ph`.** Still to do: control the `cair.ph` DNS zone to add Firebase's verification + A/AAAA (or CNAME) records; TLS is auto-provisioned by Firebase.
 3. **Plan** — Spark vs Blaze (recommend Blaze for a public URL).
 4. **Data hosting split** — tiles/boundaries on Hosting (simple) vs Cloud Storage + CDN (decoupled egress, needs an env-configurable fetch base).
 5. **Artifact source for deploys** — local machine (A), GCS sync in CI (B), or deploy branch (C). See §3.
@@ -140,7 +156,7 @@ Target per the implementation plan: **Firebase Hosting** at **`ugnay.cair.ph`**,
 
 ## 8. Suggested first steps
 
-1. Stand up a Firebase project, enable Hosting, confirm the `ugnay.cair.ph` domain path.
+1. Enable Firebase Hosting on **`ecair-eics-project`**, confirm billing, and begin the **`ugnay.cair.ph`** custom-domain flow (add the DNS records Firebase asks for).
 2. On a machine that has `output/` populated, fix the boundaries copy in `prepare_deploy.sh`, run it, and do a **manual `firebase deploy --only hosting`** to get *a* public URL working (option A). This validates the whole static contract before automating.
 3. Smoke-test the public URL: area picker loads, a dense municipality renders on mobile, borders draw, gap analysis + accessibility edges work, no console errors.
 4. Only then automate: GitHub Actions workflow (build → fetch artifacts from GCS → deploy), wire secrets, decide cache/versioning.
@@ -153,4 +169,5 @@ Target per the implementation plan: **Firebase Hosting** at **`ugnay.cair.ph`**,
 - **`pipeline_implementation_plan.md`** — S6 (tile schema — the served contract), S7 (publish), §6 (frontend JSON contract).
 - **`frontend_design.md`** — what the app does and how it reads the tiles.
 - **Repo:** `git@github.com:cair-philippines/project-ugnay.git`, branch `main`. Frontend: `platform/frontend/`. Data: `output/tiles/`, `output/boundaries/` (gitignored). Staging: `platform/prepare_deploy.sh`.
-- **Pattern reference:** `platform_aral` — sister project with a working GitHub Actions → GCP deploy to mirror for CI + secrets.
+- **Pattern reference:** `platform_aral` (`git@github.com:cair-philippines/project-aral-platform.git`) — sister project with a working GitHub Actions → GCP deploy. Reuse: the **GCS-artifacts-pulled-in-CI** pattern (its parquets live in `gs://ecair-aral-platform-snapshots/`, `gcloud storage rsync`'d and downloaded pre-build), branch-triggered Actions, service-account secret auth, env-configurable data paths. Note it uses Cloud Run + Terraform + Docker (because it has a backend); Ugnay does not, so those pieces don't carry over. See §4 "Reusing platform_aral's practices".
+- **Deploy target (confirmed):** GCP project `ecair-eics-project`, Firebase Hosting, custom domain `ugnay.cair.ph`.
