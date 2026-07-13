@@ -7,7 +7,68 @@ details: `documentation/deployment.md`.
 
 ---
 
+## 2026-07-13 (latest) — the reveal *really* fades: fade → vanish → pop
+
+Reported: after **Explore map**, the map zooms in, the nodes fade in, then **disappear**, then
+**re-appear with a pop**. Two independent causes, both confirmed by sampling MapLibre's
+evaluated paint value frame by frame.
+
+### Fixed
+- **`icon-opacity` must never change KIND.** The previous fix was built on a half-right reading
+  of MapLibre. The real rule:
+  ```js
+  // maplibre-gl/src/style/properties.ts — DataDrivenProperty
+  interpolate(a, b, t) {
+      if (a.value.kind !== 'constant' || b.value.kind !== 'constant') return a;  // ← the PRIOR
+  }
+  ```
+  It returns **`a`** — the *prior* value — for the transition's whole duration, then snaps.
+  So the three-phase reveal paid a penalty at **both** hand-overs:
+  - hiding (expression → constant `0`) kept painting the **old expression** for a full 450 ms.
+    Measured: the nodes stayed lit and **popped in tile by tile as the area streamed**, then
+    blanked at once. That is the "fade in → disappear".
+  - revealing (constant → expression) **snapped**. That is the "pop".
+
+  `icon-opacity` is now a **plain number at all times** (`0 → 1`, which MapLibre does tween),
+  and every per-node alpha — the dim toggle, the pinned node's fan — moved into the **alpha
+  channel of `icon-color` / `icon-halo-color`**, which stay expressions permanently and so
+  never change kind. MapLibre multiplies colour alpha by `icon-opacity` in the SDF shader, so
+  the two compose to exactly what the single expression used to produce. The reveal is now one
+  boolean, and it also stopped forcing a source relayout on every phase change.
+- **A 400 ms main-thread stall sat inside the reveal.** The boundary files are **3.4 MB**
+  (provincial) and **6.6 MB** (municipal), and `res.json()` parses them **on the main thread**.
+  They were fetched at Explore time, so the browser painted **no frames at all** for ~400 ms
+  during the fade — which turns any fade into a pop however it is declared. They are now
+  fetched during **setup**, so the parse happens while the user is reading the preamble and
+  picking an area, when nothing is animating.
+- **The fade now starts on `moveend`**, not on a timer. Symbol placement runs *after* the tile
+  JSON parses and blocks the main thread; a fade started earlier gets no frames. The two
+  obvious gates are both wrong: `sourcedata`/`isSourceLoaded("nodes")` reports loaded at
+  **~8 ms** (before `setData` is even applied), and `idle` arrives **1–1.6 s after touchdown**
+  because it waits on the basemap CDN.
+- **The hide is now derived during render**, not in an effect. An effect runs after the browser
+  paints, so the nodes stayed visible for ~140 ms after Explore and a few dozen of the new
+  area's nodes flashed up before the hide took hold.
+
+### Verified
+- On a **settled** map the same property tweens exactly as declared — `1.000 → 0.993 → 0.969 →
+  0.662 → 0.388 → 0.216 → 0.110 → 0.049 → 0.017 → 0.002 → 0`, reaching zero at 487 ms. The
+  machinery and the configuration are right; any remaining compression in CI is this
+  container's software renderer dropping frames, not the app.
+- **T2.4 rewritten again.** The previous version asserted only that intermediate opacities were
+  *observed*, which is hostage to the frame rate. It now asserts the **structural** property —
+  `icon-opacity` is never data-driven on any frame — plus that the nodes are still at opacity
+  **0** on the first frame their tile reaches the source. Negative control: re-introducing the
+  data-driven opacity fails it 150/150 frames.
+- 45/45 green, three consecutive runs.
+
+---
+
 ## 2026-07-13 (later) — the reveal actually fades; landing overflow; stale popup
+
+> **Superseded.** The MapLibre rule stated below is **wrong**: `DataDrivenProperty.interpolate`
+> returns **`a`** (the prior), not `b`, when either side is non-constant — which is why the
+> reveal still misbehaved after this change. See the entry above.
 
 ### Fixed
 - **The node reveal SNAPPED instead of fading.** The cause is a MapLibre rule that is easy to

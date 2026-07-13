@@ -267,9 +267,17 @@ export default function App() {
 
   // Borders follow what's being viewed: municipality borders only when the user has
   // drilled into specific cities/municipalities; province borders otherwise.
+  //
+  // Deliberately NOT gated on `phase === "map"`: the boundary files are 3.4 MB (provincial)
+  // and 6.6 MB (municipal), and `res.json()` parses them ON THE MAIN THREAD. Loading them at
+  // Explore time put a ~400ms stall squarely inside the node reveal — the browser painted no
+  // frames at all while it parsed, so the 450ms fade came out as two frames, i.e. a pop.
+  // Starting the fetch during setup means the parse happens while the user is reading the
+  // preamble and picking an area, when nothing is animating and a stall is invisible; by the
+  // time they press Explore it is parsed and cached.
   const loadedKeys = useMemo(() => Object.keys(loadedTiles), [loadedTiles]);
   const borderLevel = selectedMunicipalities.length > 0 ? "municipal" : "provincial";
-  const boundaries = useBoundaries(phase === "map" ? borderLevel : null, loadedKeys);
+  const boundaries = useBoundaries(borderLevel, loadedKeys);
 
   // Derived once here, shared by the map and the detail drawer.
   const { nodes, places } = useMemo(

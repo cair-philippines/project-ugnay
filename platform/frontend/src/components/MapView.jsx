@@ -40,9 +40,19 @@ const HALO_COLOR = ["match", ["get", "gap"], "red", "#DC2626", "amber", "#F59E0B
 
 // How long the institutions take to fade up once an area has finished loading.
 const REVEAL_MS = 450;
-// The resting opacity of an ordinary node — the value the reveal fades UP to, and the same
-// value the data-driven expression yields for a normal node, so the hand-over is invisible.
+// The resting alpha of an ordinary node. Now carried in the icon COLOUR's alpha channel,
+// not in icon-opacity — see the note on `revealed`.
 const NODE_ALPHA = 0.92;
+
+const SECTOR_KEYS = ["public", "private", "hei_public", "hei_private", "tesda"];
+const SELECTED_HALO_RGB = [30, 41, 59]; // #1e293b
+
+function hexToRgb(hex) {
+  const h = String(hex).replace("#", "");
+  const full = h.length === 3 ? h.split("").map((c) => c + c).join("") : h;
+  const n = parseInt(full, 16);
+  return Number.isNaN(n) ? [136, 136, 136] : [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+}
 
 function nodesGeoJSON(nodes, nearestIndex, thresholdKm, gapVisible, subcats, dimmed) {
   return {
@@ -99,25 +109,32 @@ export default function MapView({
   onContextLost,
 }) {
   const [viewState, setViewState] = useState(INITIAL_VIEW_STATE);
-  // Nodes stay hidden from the moment a new area is requested until the tiles are all in
-  // and the camera is most of the way through its flight. Default true so that ordinary
-  // filter/sector changes never trigger a fade.
-  // "hidden" → "fading" → "done".
+  // Nodes stay hidden from the moment a new area is requested until the tiles are all in and
+  // the camera is most of the way through its flight. Default true, so ordinary filter and
+  // sector changes never trigger a fade — only a new area does.
   //
-  // Why three states and not a boolean: **MapLibre does not interpolate DATA-DRIVEN paint
-  // properties.** In `DataDrivenProperty.interpolate(a, b, t)`, if either side is not a
-  // constant it just returns `b`. Our node opacity is an expression (it reads `dim` and
-  // `node_id`), so ANY transition on it is ignored and the change lands instantly — which
-  // is precisely why the reveal popped no matter what duration was set.
+  // ONE BOOLEAN, and `icon-opacity` is a CONSTANT on both sides of it. That is not a style
+  // choice, it is forced by MapLibre:
   //
-  // So the fade runs on a CONSTANT (constants do interpolate), and only once it has landed
-  // do we hand back to the data-driven expression. At that hand-over the expression already
-  // evaluates to the same 0.92 for ordinary nodes, so nothing visibly changes.
-  const [revealPhase, setRevealPhase] = useState("done");
-  const revealTimers = useRef([]);
+  //   DataDrivenProperty.interpolate(a, b, t) {
+  //       if (a.value.kind !== 'constant' || b.value.kind !== 'constant') return a;
+  //
+  // A transition between a constant and an EXPRESSION is not merely un-animated — going
+  // expression → constant it keeps painting the OLD EXPRESSION for the whole duration and
+  // then cuts; going constant → expression it snaps at once. So an icon-opacity that is
+  // sometimes an expression and sometimes a number cannot be faded in either direction, and
+  // it strands the previous value on screen for `duration` ms every time it changes kind.
+  //
+  // Hence: icon-opacity is *always* a plain number (0 → 1, which does interpolate), and all
+  // the per-node alpha — the dim toggle, the pinned node's fan — rides the ALPHA CHANNEL of
+  // `icon-color` / `icon-halo-color`, which are expressions permanently and so never change
+  // kind. MapLibre multiplies colour alpha by icon-opacity in the SDF shader, so the two
+  // compose exactly as the single expression used to.
+  const [revealed, setRevealed] = useState(true);
+  const revealTimer = useRef(null);
   const clearRevealTimers = () => {
-    revealTimers.current.forEach(clearTimeout);
-    revealTimers.current = [];
+    clearTimeout(revealTimer.current);
+    revealTimer.current = null;
   };
   const [hoverNode, setHoverNode] = useState(null);
   const [ready, setReady] = useState(false);
@@ -144,20 +161,6 @@ export default function MapView({
 
   const selId = selectedNode?.node_id || "";
 
-  const colorExpr = useMemo(
-    () => [
-      "match",
-      ["get", "fill"],
-      "public", sectorColors.public,
-      "private", sectorColors.private,
-      "hei_public", sectorColors.hei_public,
-      "hei_private", sectorColors.hei_private,
-      "tesda", sectorColors.tesda,
-      "#888888",
-    ],
-    [sectorColors]
-  );
-
   const edgeColorExpr = useMemo(
     () => [
       "match",
@@ -178,12 +181,14 @@ export default function MapView({
     [thresholdKm]
   );
 
-  // Two independent kinds of de-emphasis, in priority order:
+  // Per-node alpha. Two independent kinds of de-emphasis, in priority order:
   //   1. a pinned selection fades everything not on its fan
   //   2. the user's per-subcategory "dim" pushes a level back without hiding it
-  const nodeOpacityExpr = useMemo(() => {
+  //
+  // This rides the colour's ALPHA CHANNEL rather than icon-opacity — see `revealed`.
+  const alphaExpr = useMemo(() => {
     const dimmedAlpha = 0.15;
-    const base = ["case", ["get", "dim"], dimmedAlpha, 0.92];
+    const base = ["case", ["get", "dim"], dimmedAlpha, NODE_ALPHA];
     if (!selId) return base;
     const ids = [...new Set([selId, ...connectedIds])];
     return [
@@ -194,6 +199,37 @@ export default function MapView({
       ["case", ["get", "dim"], 0.08, 0.16],
     ];
   }, [selId, connectedIds]);
+
+  // Sector colour, with the per-node alpha folded into it. `rgba` takes an expression per
+  // channel, so this stays one data-driven value — never a constant, never a kind change.
+  const colorExpr = useMemo(() => {
+    const rgb = Object.fromEntries(SECTOR_KEYS.map((k) => [k, hexToRgb(sectorColors[k])]));
+    const channel = (i) => [
+      "match",
+      ["get", "fill"],
+      "public", rgb.public[i],
+      "private", rgb.private[i],
+      "hei_public", rgb.hei_public[i],
+      "hei_private", rgb.hei_private[i],
+      "tesda", rgb.tesda[i],
+      136, // #888888
+    ];
+    return ["rgba", channel(0), channel(1), channel(2), alphaExpr];
+  }, [sectorColors, alphaExpr]);
+
+  // The old circle-stroke: white hairline normally, dark ring when pinned. Carries the same
+  // alpha as the node, so a dimmed node's outline dims with it (icon-opacity used to do
+  // that for both at once).
+  const haloColorExpr = useMemo(() => {
+    const isSel = ["==", ["get", "node_id"], selId];
+    return [
+      "rgba",
+      ["case", isSel, SELECTED_HALO_RGB[0], 255],
+      ["case", isSel, SELECTED_HALO_RGB[1], 255],
+      ["case", isSel, SELECTED_HALO_RGB[2], 255],
+      alphaExpr,
+    ];
+  }, [selId, alphaExpr]);
 
   // Which SDF image each fill bucket draws with. The user picks a shape per swatch, so
   // this is the shape twin of `colorExpr` and is keyed the same way.
@@ -229,29 +265,28 @@ export default function MapView({
     [iconExpr, selId, nodeSize]
   );
 
-  // A CONSTANT while revealing (constants interpolate), the real expression once revealed.
-  const iconOpacity = useMemo(() => {
-    if (revealPhase === "hidden") return 0;
-    if (revealPhase === "fading") return NODE_ALPHA; // constant → MapLibre actually fades it
-    return nodeOpacityExpr;
-  }, [revealPhase, nodeOpacityExpr]);
-
+  // The whole-layer reveal. A plain number on both sides, so MapLibre really does tween it.
+  //
+  // The duration is DIRECTIONAL, and that matters: hiding has to be instantaneous. The tiles
+  // for the new area start landing within a couple of hundred milliseconds, so a 450ms
+  // fade-OUT would still be in flight when they arrive and they would draw at whatever
+  // opacity the fade had reached — the nodes would flicker up as they streamed in and only
+  // then go dark. Snap to 0, fade to 1.
+  //
+  // (Setting the value and its `-transition` in the same paint object is safe: react-map-gl
+  // calls setPaintProperty for each key during the same render, and MapLibre only reads the
+  // transition later, in Style.update() → updateTransitions(). Key order is irrelevant.)
   const symbolPaint = useMemo(
     () => ({
       "icon-color": colorExpr,
-      "icon-opacity": iconOpacity,
-      // Fixed duration, never derived from state: react-map-gl applies paint properties in
-      // object order, so a duration computed in the same render as the opacity would be
-      // installed *after* it and apply only to the next change.
-      "icon-opacity-transition": { duration: REVEAL_MS },
-      // The old circle-stroke: white hairline normally, dark ring when pinned.
-      //
+      "icon-opacity": revealed ? 1 : 0,
+      "icon-opacity-transition": { duration: revealed ? REVEAL_MS : 0 },
+      "icon-halo-color": haloColorExpr,
       // The widths MUST scale with the node size. `icon-halo-width` is divided by
       // `icon-size` inside MapLibre's SDF shader, and if the result exceeds 6 the shader
       // floods the whole icon quad with the halo colour — every node grows a translucent
       // white SQUARE (invisible on the light basemap, glaring on satellite). Fixed pixel
       // widths did exactly that at the small end of the size slider. See lib/nodeShapes.js.
-      "icon-halo-color": ["case", ["==", ["get", "node_id"], selId], "#1e293b", "#ffffff"],
       "icon-halo-width": [
         "case",
         ["==", ["get", "node_id"], selId], haloWidthSelectedFor(nodeSize + 4),
@@ -259,7 +294,7 @@ export default function MapView({
       ],
       "icon-halo-blur": 0,
     }),
-    [colorExpr, selId, nodeSize, iconOpacity]
+    [colorExpr, haloColorExpr, selId, nodeSize, revealed]
   );
 
   const fitKey =
@@ -269,40 +304,66 @@ export default function MapView({
   // state left over from the previous area. Without the clear, the popup for a node that
   // no longer exists keeps rendering at its old lng/lat — now far outside the view, which
   // MapLibre transforms to a large negative offset, i.e. it flashes in the TOP-LEFT corner.
-  useEffect(() => {
-    if (!exploreSeq) return;
+  //
+  // Derived DURING RENDER, not in an effect. An effect runs after the browser has painted,
+  // so `setRevealed(false)` would need a second commit — and the first tiles of the new area
+  // can already have landed and drawn by then, at full opacity. Measured: the nodes stayed
+  // lit for ~140ms and a few dozen of them flashed up before the hide took hold. Setting
+  // state during render of the *same* component makes React re-render before committing, so
+  // the frame the user actually sees already has the nodes hidden.
+  const [seenSeq, setSeenSeq] = useState(exploreSeq);
+  if (exploreSeq !== seenSeq) {
+    setSeenSeq(exploreSeq);
     clearRevealTimers();
-    setRevealPhase("hidden");
+    setRevealed(false);
     setHoverNode(null);
     hoverFidRef.current = null;
-  }, [exploreSeq]);
+  }
 
-  // Fit and reveal as ONE gesture.
+  // Fit, then reveal.
   //
-  // Two things made the old entrance clunky, and both are fixed by waiting for `loading`
-  // to clear: (1) `fitKey` changes as EACH tile arrives, so the camera used to re-fit over
-  // and over while the area streamed in; (2) nodes rendered the instant their tile landed,
-  // so they popped in unevenly, tile by tile.
+  // `fitKey` changes as EACH tile arrives, so gating on `loading` is what stops the camera
+  // re-fitting over and over while the area streams in: one flight, once everything is in.
   //
-  // Now: nothing is drawn until every tile is in, then the camera flies once, and the nodes
-  // fade up *during* the flight — so they are simply there when it lands, rather than
-  // arriving as a second, separate event.
+  // The fade starts when the CAMERA LANDS, not on a timer, and not when the data says it is
+  // ready. `loading === false` only means the tile JSON has arrived; MapLibre then has to
+  // parse it into buckets and run symbol placement for every institution, and that work
+  // blocks the main thread. A fade that starts in the middle of it gets no frames: the whole
+  // 450ms elapses inside one stalled frame and the tween lands as a single step, i.e. a pop.
+  //
+  // Neither of the obvious gates works, which is worth writing down:
+  //   • `sourcedata` / isSourceLoaded("nodes") fires at ~8ms — the source reports "loaded"
+  //     before setData has even been applied, so it is no gate at all.
+  //   • `idle` fires 1–1.6s AFTER the camera lands, because it waits on every source,
+  //     including the basemap's tiles from a CDN. It is hostage to the network.
+  //
+  // `moveend` on the 800ms flight is both: late enough that placement is done (measured: the
+  // last symbols are placed ~780ms in) and early enough to be part of the same gesture, and
+  // it depends on nothing but our own animation. The timer is only a safety net — the
+  // institutions must NEVER be stranded invisible if the flight is interrupted.
   useEffect(() => {
     const map = mapRef.current?.getMap();
     if (!map || loading) return;
     const b = robustBounds(nodesFC.features);
     if (!b) return;
     map.fitBounds(b, { padding: 60, maxZoom: 14, duration: 800 });
-    if (revealPhase === "hidden") {
+    if (revealed) return;
+
+    clearRevealTimers();
+    const reveal = () => {
       clearRevealTimers();
-      revealTimers.current.push(
-        // Start the fade partway into the 800ms flight, so the pins are settling in as the
-        // camera lands rather than arriving as a separate second event…
-        setTimeout(() => setRevealPhase("fading"), 350),
-        // …then hand back to the data-driven expression once the fade has finished.
-        setTimeout(() => setRevealPhase("done"), 350 + REVEAL_MS)
-      );
+      map.off("moveend", onLanded);
+      setRevealed(true);
+    };
+    // One more frame after touchdown, so the tween never shares a frame with the last of the
+    // placement work.
+    function onLanded() {
+      map.off("moveend", onLanded);
+      requestAnimationFrame(() => requestAnimationFrame(reveal));
     }
+    map.on("moveend", onLanded);
+    revealTimer.current = setTimeout(reveal, 1800);
+    return () => map.off("moveend", onLanded);
   }, [fitKey, loading]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => clearRevealTimers, []);
@@ -542,9 +603,10 @@ export default function MapView({
             "circle-color": "rgba(0,0,0,0)",
             "circle-stroke-color": HALO_COLOR,
             "circle-stroke-width": 2.4,
-            // A constant, so this one does fade (see the note on revealPhase).
-            "circle-stroke-opacity": revealPhase === "hidden" ? 0 : 0.9,
-            "circle-stroke-opacity-transition": { duration: REVEAL_MS },
+            // Already a constant, so this one always faded. Same directional duration as the
+            // nodes it rings, so the two move together.
+            "circle-stroke-opacity": revealed ? 0.9 : 0,
+            "circle-stroke-opacity-transition": { duration: revealed ? REVEAL_MS : 0 },
           }}
         />
         {/* Hover feedback. The nodes themselves are symbols now and symbols can't read

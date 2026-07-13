@@ -53,14 +53,32 @@ Each of these produced a *false* result before being fixed — they cost real de
 4. **The same name can be both a province and a municipality** (e.g. *Quezon City* in NCR).
    Province checkboxes render before municipality ones — disambiguate with `.first()` / `.last()`.
 
-5. **MapLibre does not interpolate DATA-DRIVEN paint properties.** `DataDrivenProperty.interpolate(a, b, t)`
-   returns `b` unless *both* sides are constants. So a paint property built from an expression
-   (anything reading `["get", …]`) **cannot fade**, whatever `*-transition` duration you set —
-   and a test that asserts the declared duration will pass while the thing visibly *pops*. To
-   test a fade, sample MapLibre's **evaluated** value per frame
-   (`map.style._layers[id].paint.get(prop).constantOr(NaN)`) and require real intermediate
-   values. (This is why the node reveal has to fade on a constant and only then hand back to
-   the expression.)
+5. **MapLibre does not interpolate DATA-DRIVEN paint properties — and "does not interpolate"
+   is worse than it sounds.**
+   ```js
+   // maplibre-gl/src/style/properties.ts — DataDrivenProperty
+   interpolate(a, b, t) {
+       if (a.value.kind !== 'constant' || b.value.kind !== 'constant') return a;  // ← the PRIOR
+   ```
+   It returns **`a`**, the prior value, for the transition's *whole duration*, and only then
+   snaps to the new one. So a paint property that switches between a constant and an
+   expression is not merely un-animated:
+   - **expression → constant**: keeps painting the **old expression** for `duration` ms, then cuts.
+   - **constant → expression**: snaps at once.
+
+   A reveal that hides the nodes by writing `0` over an expression therefore leaves them fully
+   lit for 450 ms — long enough for the new area's tiles to stream in and pop up one by one —
+   and *then* blanks them. That was the real bug, and no duration would ever have fixed it.
+   Keep such a property a **plain number at all times** (constants *do* interpolate) and put
+   any per-feature variation in the colour's **alpha channel**, which stays an expression
+   permanently and so never changes kind.
+
+   Testing it: a test that asserts the declared `*-transition` duration **passes while the
+   thing visibly pops**. Assert the *structure* — that the evaluated value is never data-driven
+   (`map.style._layers[id].paint.get(prop).constantOr(NaN)` is never `NaN`) — because that is
+   what makes a fade possible at all. Counting interpolated frames is a weak check on its own:
+   this container renders in software and drops frames, so a *correct* 450 ms fade can be
+   sampled only two or three times.
 
 Also: **assert on state, not on text that is always present.** The detail drawer is always
 mounted (it slides in on a transform), so its "INSTITUTION" heading is in the DOM even with
@@ -195,18 +213,21 @@ Use a small, dense area for speed (e.g. a single municipality) and one large one
 ---
 
 ### T2.4 Nodes are held back, then fade in with the camera
-**Why:** institutions used to render the instant *their own tile* landed, so they popped in unevenly, tile by tile — while the camera **re-fitted on every arriving tile** (`fitKey` changes per tile). Two competing motions.
+**Why:** institutions used to render the instant *their own tile* landed, so they popped in unevenly, tile by tile — while the camera **re-fitted on every arriving tile** (`fitKey` changes per tile). Two competing motions. The first fix for this looked right and still popped, for the reason in gotcha 5.
 
 **Steps:**
-1. Click **Explore map →** and read `icon-opacity` off `nodes-basic` ~150 ms later.
-2. Wait for the area to settle, and read it again.
+1. Arm a per-frame sampler recording MapLibre's *evaluated* `icon-opacity` on `nodes-basic` plus the node count in the source.
+2. Click **Explore map →**, let the area settle, and read the trace back.
 
-**Expected:** The app wraps the node-opacity expression in a reveal multiplier —
-`icon-opacity = ["*", <opacity expr>, 0 | 1]`.
-- **0** while the area is still loading (nothing drawn, however many tiles have arrived).
-- **1** once every tile is in — the camera flies once, and the fade (450 ms) starts *partway into* the flight so the pins are simply there when it lands.
+**Expected:**
+- `icon-opacity` is a **plain number on every frame** — never data-driven. This is the load-bearing assertion: it is the only thing that lets MapLibre tween it (gotcha 5). Per-node alpha (the dim toggle, the pinned node's fan) lives in the **alpha channel of `icon-color` / `icon-halo-color`**.
+- On the **first frame a tile's nodes reach the source**, opacity is still **0** — they are held back, not popped in one tile at a time.
+- The declared `icon-opacity-transition` is 450 ms, and the trace passes through real intermediate values on the way to 1.
 
-**What to check if broken:** the fit/reveal effect in `MapView` must be gated on `loading`. If it fits while tiles stream, the camera judders; if nodes render before `revealed`, they pop.
+**What to check if broken:**
+- The fit/reveal effect in `MapView` must be gated on `loading`, or the camera re-fits per tile and judders.
+- The fade must start on **`moveend`** of the 800 ms flight. Not on a timer, and not on the data being ready: symbol *placement* runs after the tile JSON parses and blocks the main thread, so a fade started any earlier gets no frames and lands as a single step. Neither obvious gate works — `sourcedata`/`isSourceLoaded("nodes")` fires at ~8 ms (before `setData` is even applied), and `idle` fires 1–1.6 s *after* touchdown because it waits on the basemap CDN.
+- The boundary GeoJSON (3.4 MB provincial / 6.6 MB municipal) must be fetched during **setup**, not at Explore. `res.json()` parses it on the main thread; loading it at Explore time put a ~400 ms stall inside the reveal, during which the browser painted *no frames at all* — which turns any fade into a pop no matter how it is declared.
 
 ---
 

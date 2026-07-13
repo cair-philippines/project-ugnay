@@ -271,10 +271,41 @@ Also honoured: **`prefers-reduced-motion`** zeroes the transitions (motion here 
 
 ## 7. Change log
 
+**Round 12 (2026-07-13) — the reveal, for real; and two rules worth keeping.**
+
+Round 11 claimed the nodes faded in. They did not: they faded in, **vanished, and popped back**.
+Chasing it produced two constraints that now bind anything animated on this map.
+
+- **A MapLibre paint property that changes KIND cannot be animated — in either direction.**
+  `DataDrivenProperty.interpolate(a, b, t)` returns **`a`, the prior value**, whenever either
+  side is non-constant. Not "no tween" — it *strands the old value on screen for the full
+  duration and then cuts*. So an `icon-opacity` that is an expression at rest and a number
+  during a reveal will keep painting the **old expression** for 450 ms when you hide it (the
+  nodes stay lit and pop in tile by tile as the area streams) and **snap** when you show it.
+  - **Rule: keep an animated paint property a plain number at all times.** Per-feature
+    variation belongs in the colour's **alpha channel** (`icon-color` / `icon-halo-color`),
+    which stays an expression permanently and so never changes kind. The SDF shader multiplies
+    colour alpha by `icon-opacity`, so the two compose to exactly what one expression gave you.
+    This also stops the reveal from forcing a source relayout on every phase change.
+- **An animation is only as good as the frames the main thread can spare.** Two stalls were
+  eating this one, and neither was visible in the paint properties:
+  - the **boundary GeoJSON is 3.4 MB / 6.6 MB** and `res.json()` parses it **on the main
+    thread**. Fetched at Explore time, it froze the browser for ~400 ms *inside* the fade —
+    zero frames painted. It is now fetched during **setup**, where a stall is invisible.
+  - **symbol placement** runs after the tile JSON parses and blocks too, so the fade waits for
+    **`moveend`** on the 800 ms flight. Not a timer, and not the data being ready:
+    `isSourceLoaded("nodes")` reports true at **~8 ms** (before `setData` is applied) and
+    `idle` arrives **1–1.6 s after touchdown** because it waits on the basemap CDN.
+  - **Rule: before tuning a transition's duration, check whether the browser is painting at
+    all during it.** Sample the *evaluated* value per frame and look at the frame *gaps*.
+- **State that must be visible in the very next painted frame is derived during render, not in
+  an effect.** Effects run *after* paint, so hiding the nodes in one cost ~140 ms — enough for
+  the new area's first tiles to flash up at full opacity.
+
 **Round 11 (2026-07-13) — mojibake, the landing preamble, and motion.**
 - **`ñ` mojibake repaired at the source of truth.** Three school names carried `Ã±` (a double-encoded `ñ`). The corruption is upstream in `project_coordinates`; Ugnay now normalises at ingest (`modules/text_clean.py`, wired into S1) and **S6 fails the build** rather than ship a corrupt tile. In a country of Parañaque and Los Baños this is a credibility problem, not a typo.
 - **The map NEVER resizes any more.** The header became an **overlay** rather than a flex sibling — required so that "clear map" can slide it away without pulling it out of the flow and resizing the canvas. That removes the last remaining source of WebGL-buffer clears (see round 6). Panels are positioned to clear the 48px header (`top-14`); the auto-fit's 60px padding already exceeds it, so fitted institutions never land underneath.
-- **Nodes fade in with the camera.** They used to render tile-by-tile as the area streamed in, while the camera re-fitted on *every arriving tile*. The fit is now gated on `loading`, so the camera flies **once**, and the nodes fade up **during** the flight (a reveal multiplier on the opacity expression). One gesture, not two. **T2.4.**
+- **Nodes fade in with the camera.** They used to render tile-by-tile as the area streamed in, while the camera re-fitted on *every arriving tile*. The fit is now gated on `loading`, so the camera flies **once**. (The *reveal* itself — a multiplier on the opacity expression — was still broken; see Round 12.) **T2.4.**
 - **"Clear map" is a directional slide** — each panel to its own edge (header ↑, Layers →, Legend ←, drawer →). The map is *revealed*, and the exit shows where each panel went. Hidden panels are `inert`. **T10.2.**
 - **Landing preamble** (§2): two columns on desktop, stacked on mobile. Answers what this is, what you can do (three verbs), what it covers (real figures), and — up front, not buried in the legend — **what it does not say**: reach is not enrolment. The mobile variant is *compact*; the desktop markup stacked on a phone pushed the region picker below the fold.
 

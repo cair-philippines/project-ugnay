@@ -365,19 +365,34 @@ const sliderFor = (p, label) =>
       await p.locator("label").filter({ hasText: /^Benguet$/ }).first().locator("input[type=checkbox]").check();
       await p.waitForTimeout(400);
 
-      // Sample MapLibre's EVALUATED opacity every frame. Asserting the declared
-      // `icon-opacity-transition` duration proves nothing: MapLibre does **not** interpolate
-      // DATA-DRIVEN paint properties (DataDrivenProperty.interpolate returns `b` outright
-      // unless both sides are constants), so the reveal can be declared at 450ms and still
-      // snap. Only the evaluated value tells you whether it actually faded.
+      // Sample MapLibre's EVALUATED opacity every frame, alongside how many nodes are in the
+      // source at that moment.
+      //
+      // Asserting the declared `icon-opacity-transition` duration in isolation proves nothing:
+      // MapLibre does **not** interpolate DATA-DRIVEN paint properties. In
+      // DataDrivenProperty.interpolate(a, b, t), if either side is a non-constant it returns
+      // `a` — so an expression → constant change keeps painting the OLD EXPRESSION for the
+      // whole duration and then cuts, and a constant → expression change snaps at once. A
+      // reveal declared at 450ms could, and did, still pop.
+      //
+      // So the load-bearing assertion is STRUCTURAL: icon-opacity must be a plain number at
+      // every instant (never an expression), because only then can MapLibre tween it at all.
+      // The per-node alpha lives in the colour's alpha channel instead. Counting interpolated
+      // frames alone would be too weak a check here — under a software renderer the frame rate
+      // collapses and even a perfect 450ms tween yields only a handful of samples.
       await p.evaluate(() => {
-        window.__op = [];
+        window.__f = [];
         const t0 = performance.now();
         const tick = () => {
           const m = window.__ugnayMap;
           const layer = m && m.style && m.style._layers && m.style._layers["nodes-basic"];
           if (layer) {
-            try { window.__op.push(layer.paint.get("icon-opacity").constantOr(NaN)); } catch { /* ignore */ }
+            try {
+              window.__f.push({
+                op: layer.paint.get("icon-opacity").constantOr(NaN),
+                src: m.getSource("nodes")?._data?.features?.length ?? 0,
+              });
+            } catch { /* ignore */ }
           }
           if (performance.now() - t0 < 7000) requestAnimationFrame(tick);
         };
@@ -395,19 +410,45 @@ const sliderFor = (p, label) =>
       );
       await p.waitForTimeout(4000);
 
-      const op = await p.evaluate(() => window.__op);
-      const zeros = op.filter((o) => o === 0).length;
-      const mid = op.filter((o) => !Number.isNaN(o) && o > 0.02 && o < 0.9).length;
-      assert(zeros > 0, "nodes were never held at opacity 0 — they render as tiles stream in");
-      assert(
-        mid >= 4,
-        `no intermediate opacities: the reveal SNAPPED (saw ${mid} values strictly between 0 and 0.9). ` +
-          `The fade must run on a CONSTANT — MapLibre does not interpolate data-driven paint properties.`
+      const frames = await p.evaluate(() => window.__f);
+      const dur = await p.evaluate(() =>
+        window.__ugnayMap.getPaintProperty("nodes-basic", "icon-opacity-transition")
       );
+
+      // 1. STRUCTURAL: icon-opacity is never an expression. A single NaN here means the
+      //    layer went data-driven, and MapLibre can no longer tween it in either direction.
+      const exprFrames = frames.filter((f) => Number.isNaN(f.op)).length;
+      assert(
+        exprFrames === 0,
+        `icon-opacity was DATA-DRIVEN on ${exprFrames}/${frames.length} frames — MapLibre cannot ` +
+          `interpolate that, so the reveal can only snap. Per-node alpha belongs in icon-color's ` +
+          `alpha channel, not in icon-opacity.`
+      );
+
+      // 2. Nodes must be hidden while the area streams in. The regression the user saw: the
+      //    nodes stayed lit and popped in tile by tile, because the hide was applied to a
+      //    data-driven value and MapLibre held the OLD expression for the transition's
+      //    full duration before cutting to 0.
+      const firstWithNodes = frames.find((f) => f.src > 0);
+      assert(firstWithNodes, "the source never received any nodes");
+      assert(
+        firstWithNodes.op === 0,
+        `nodes were already at opacity ${firstWithNodes.op} on the first frame their tile landed — ` +
+          `they pop in one tile at a time instead of being held back for the reveal`
+      );
+
+      // 3. The transition is declared, and (2) guarantees MapLibre will honour it.
+      assert(dur && dur.duration > 0, `no icon-opacity transition declared: ${JSON.stringify(dur)}`);
+
+      // 4. …and it demonstrably tweens. Kept deliberately low: this environment renders in
+      //    software and drops frames, so a correct fade can still be sampled only a few times.
+      const mid = frames.filter((f) => f.op > 0.02 && f.op < 0.9).length;
+      assert(mid >= 2, `the reveal SNAPPED — only ${mid} frames landed strictly between 0 and 0.9`);
+
       const drawn = await renderedCount(p, "nodes-basic");
       assert(drawn > 0, "no nodes rendered after the reveal");
       await p.close();
-      return `held at 0, then ${mid} interpolated steps up to full — a real fade; ${drawn} pins`;
+      return `opacity constant throughout (0 data-driven frames); held at 0 while ${firstWithNodes.src} nodes streamed in; ${mid} interpolated steps over ${dur.duration}ms; ${drawn} pins`;
     });
   }
 
