@@ -69,6 +69,31 @@ async function enterMap(p, { region = "Cordillera Administrative Region (CAR)", 
     null,
     { timeout: 60000 }
   );
+  await waitForReveal(p);
+}
+
+/**
+ * Block until the reveal has completed — `icon-opacity` back at full.
+ *
+ * Institutions are deliberately held at opacity 0 until the camera lands (see T2.4), so
+ * "the source has features" is NOT the same as "the map is showing them". Without this,
+ * anything measured straight after enterMap() races the reveal: T12.1 reported "250
+ * rendered" locally and "0 rendered" against production, from identical code.
+ */
+async function waitForReveal(p, timeout = 20000) {
+  await p.waitForFunction(
+    () => {
+      const layer = window.__ugnayMap?.style?._layers?.["nodes-basic"];
+      if (!layer) return false;
+      try {
+        return layer.paint.get("icon-opacity").constantOr(0) >= 0.99;
+      } catch {
+        return false;
+      }
+    },
+    null,
+    { timeout }
+  );
 }
 
 const openPanel = async (p) => {
@@ -986,6 +1011,9 @@ const sliderFor = (p, label) =>
     const hScroll = await m.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1);
     assert(!hScroll, "page body scrolls horizontally at 390px — layout overflow");
     assert(n > 0, "no institutions loaded");
+    // Not just loaded — actually ON SCREEN. This used to print `drawn` without asserting it,
+    // so a phone rendering zero pins would have passed.
+    assert(drawn > 0, `${n} institutions loaded but NONE rendered on a 390px viewport`);
     // interactivity: pan and confirm the map responds
     await m.evaluate(() => window.__ugnayMap.panBy([60, 60], { duration: 0 }));
     await m.waitForTimeout(500);
