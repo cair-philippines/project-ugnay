@@ -122,6 +122,11 @@ export default function App() {
   // user can read the map unobstructed. The restore control lives on the map itself.
   const [uiHidden, setUiHidden] = useState(false);
 
+  // Ticks on every "Explore map". MapView uses it to know a NEW area is arriving, so it can
+  // hold the nodes hidden until the tiles are all in and fade them up with the camera.
+  // A plain counter (not a boolean) so two explores of the same area still fire.
+  const [exploreSeq, setExploreSeq] = useState(0);
+
   const fadeTimer = useRef(null);
   // First landing appears instantly (no fade — the fade-in revealed the empty map behind
   // it, which read as a flash). Only "Change area" re-entry fades in over the live map.
@@ -236,6 +241,7 @@ export default function App() {
     const munis = effectiveMunicipalities();
     if (!munis.length) return;
     enteredMapRef.current = true;
+    setExploreSeq((n) => n + 1); // tells MapView to hold the nodes back until the area is in
     evictAll();
     munis.forEach((psgc) => loadTile(psgc));
     setSelectedNode(null);
@@ -278,9 +284,24 @@ export default function App() {
   // map" button) sat underneath them until the chrome auto-hid. `dvh` tracks the chrome as
   // it shows and hides, so the button is reachable immediately.
   return (
-    <div className="relative flex flex-col h-[100dvh] w-screen bg-gray-50 overflow-hidden">
-      {!uiHidden && (
-      <header className="flex items-center gap-3 px-3 sm:px-4 py-2 bg-white border-b border-gray-200 z-10 shrink-0">
+    <div className="relative h-[100dvh] w-screen bg-gray-50 overflow-hidden">
+      {/* The header OVERLAYS the map rather than sitting above it in flow. That is what lets
+          "clear map" mode slide it away smoothly: a flex sibling can only leave the layout,
+          which would resize the map container — and every resize reallocates (and clears)
+          MapLibre's WebGL buffer. Now the map is a fixed full-bleed box that NEVER changes
+          size, for any reason. The auto-fit's 60px padding exceeds the header's 48px, so
+          fitted institutions never land underneath it. */}
+      <header
+        aria-hidden={uiHidden}
+        // Slid off-screen is not the same as gone: without `inert` the header's buttons stay
+        // in the tab order, so a keyboard user would tab into a bar they cannot see. Same
+        // rule as every other collapsible here (see TESTS.md, "Accessibility rule").
+        inert={uiHidden}
+        className={`absolute top-0 inset-x-0 h-12 flex items-center gap-3 px-3 sm:px-4 bg-white border-b border-gray-200 z-40
+          transition-[transform,opacity] duration-300 ease-out will-change-transform ${
+            uiHidden ? "-translate-y-full opacity-0 pointer-events-none" : "translate-y-0 opacity-100"
+          }`}
+      >
         <div className="flex items-center gap-2 min-w-0">
           <span className="text-lg font-bold text-blue-600 shrink-0">Ugnay</span>
           <span className="text-xs text-gray-400 hidden sm:inline">Education Institutions Map</span>
@@ -356,7 +377,6 @@ export default function App() {
           <span className="text-xs text-blue-500 animate-pulse ml-auto shrink-0">Loading…</span>
         )}
       </header>
-      )}
 
       {/* The map fills this box and NEVER changes size — the drawer overlays it. Resizing
           the map container reallocates MapLibre's WebGL buffer, which clears it to white;
@@ -364,7 +384,7 @@ export default function App() {
           `ugnay-drawer-open` slides MapLibre's own bottom-right zoom controls clear of the
           drawer (see index.css). */}
       <div
-        className={`flex-1 relative overflow-hidden ${
+        className={`absolute inset-0 overflow-hidden ${
           selectedNode && !uiHidden && !isMobile ? "ugnay-drawer-open" : ""
         } ${isMobile ? "ugnay-mobile" : ""}`}
       >
@@ -391,10 +411,11 @@ export default function App() {
               uiHidden={uiHidden}
               onToggleUiHidden={() => setUiHidden((v) => !v)}
               isMobile={isMobile}
+              loading={anyLoading}
+              exploreSeq={exploreSeq}
             />
           </ErrorBoundary>
 
-          {!uiHidden && (
           <FilterPanel
             drawerOpen={!!selectedNode}
             activeSectors={activeSectors}
@@ -420,17 +441,18 @@ export default function App() {
             onGapToggle={() => setGapVisible((v) => !v)}
             basemap={basemap}
             onBasemap={setBasemap}
+            uiHidden={uiHidden}
           />
-          )}
 
           {/* On mobile the legend is a TAB inside the bottom sheet — a floating legend and
               a bottom sheet would fight over the same corner of a small screen. */}
-          {!uiHidden && !isMobile && (
+          {!isMobile && (
           <Legend
             sectorColors={sectorColors}
             nodeShapes={nodeShapes}
             gapVisible={gapVisible}
             thresholdKm={thresholdKm}
+            uiHidden={uiHidden}
           />
           )}
 
@@ -443,10 +465,11 @@ export default function App() {
           )}
 
           {/* Detail for the pinned institution. Overlays the map and slides in on a
-              transform — see DetailDrawer for why it must not resize the map. */}
-          {!uiHidden && (
+              transform — see DetailDrawer for why it must not resize the map.
+              In clear-map mode we pass node={null}: the drawer then slides out on the exact
+              path it already uses, so hiding the UI needs no separate animation. */}
           <DetailDrawer
-            node={selectedNode}
+            node={uiHidden ? null : selectedNode}
             place={places[selectedNode?.node_id]}
             colors={sectorColors}
             stats={stats}
@@ -454,7 +477,6 @@ export default function App() {
             onClose={() => setSelectedNode(null)}
             isMobile={isMobile}
           />
-          )}
       </div>
 
       {phase === "setup" && (

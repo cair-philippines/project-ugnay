@@ -49,6 +49,8 @@ import pandas as pd
 PROJECT_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_DIR))
 
+from modules.text_clean import find_mojibake
+
 OUTPUT_DIR        = PROJECT_DIR / "output"
 NODES_PATH        = OUTPUT_DIR / "nodes" / "institutions.parquet"
 GRAPH_DIR         = OUTPUT_DIR / "graph"
@@ -116,6 +118,19 @@ def tokens_of(r):
         if r.get("tesda_role_assessment"):
             t.add("tesda_assessment")
     return frozenset(t)
+
+
+def _iter_strings(obj):
+    """Every string anywhere in a nested tile — for the mojibake backstop."""
+    if isinstance(obj, dict):
+        for k, v in obj.items():
+            yield k
+            yield from _iter_strings(v)
+    elif isinstance(obj, (list, tuple)):
+        for v in obj:
+            yield from _iter_strings(v)
+    elif isinstance(obj, str):
+        yield obj
 
 
 def _strip(v):
@@ -382,6 +397,18 @@ def main():
             "neighbor_nodes": neighbor_nodes,
             "continuity":     continuity,
         }
+
+        # Nothing mojibaked may reach a tile. S1 repairs it at ingest; this is the
+        # backstop, because a corrupt name ("MontaÃ±eza NHS") is the kind of defect that
+        # ships silently and quietly discredits the whole dataset in a planner's eyes.
+        # Fail the build rather than serve it.
+        bad = [s for s in _iter_strings(tile) if find_mojibake(s)]
+        if bad:
+            raise SystemExit(
+                f"S6: mojibake in tile {municity}: {bad[:5]}\n"
+                f"     Expected S1 to have repaired this (modules/text_clean.py). "
+                f"Re-run s1_node_assembly.py."
+            )
 
         out_path = tiles_dir / f"{municity}.json"
         with open(out_path, "w") as fh:

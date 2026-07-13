@@ -271,6 +271,13 @@ Also honoured: **`prefers-reduced-motion`** zeroes the transitions (motion here 
 
 ## 7. Change log
 
+**Round 11 (2026-07-13) — mojibake, the landing preamble, and motion.**
+- **`ñ` mojibake repaired at the source of truth.** Three school names carried `Ã±` (a double-encoded `ñ`). The corruption is upstream in `project_coordinates`; Ugnay now normalises at ingest (`modules/text_clean.py`, wired into S1) and **S6 fails the build** rather than ship a corrupt tile. In a country of Parañaque and Los Baños this is a credibility problem, not a typo.
+- **The map NEVER resizes any more.** The header became an **overlay** rather than a flex sibling — required so that "clear map" can slide it away without pulling it out of the flow and resizing the canvas. That removes the last remaining source of WebGL-buffer clears (see round 6). Panels are positioned to clear the 48px header (`top-14`); the auto-fit's 60px padding already exceeds it, so fitted institutions never land underneath.
+- **Nodes fade in with the camera.** They used to render tile-by-tile as the area streamed in, while the camera re-fitted on *every arriving tile*. The fit is now gated on `loading`, so the camera flies **once**, and the nodes fade up **during** the flight (a reveal multiplier on the opacity expression). One gesture, not two. **T2.4.**
+- **"Clear map" is a directional slide** — each panel to its own edge (header ↑, Layers →, Legend ←, drawer →). The map is *revealed*, and the exit shows where each panel went. Hidden panels are `inert`. **T10.2.**
+- **Landing preamble** (§2): two columns on desktop, stacked on mobile. Answers what this is, what you can do (three verbs), what it covers (real figures), and — up front, not buried in the legend — **what it does not say**: reach is not enrolment. The mobile variant is *compact*; the desktop markup stacked on a phone pushed the region picker below the fold.
+
 **Round 9 (2026-07-12) — node shapes + a real mobile design.**
 - **Node shapes** (circle/square/triangle/diamond) as a **second encoding channel**, per swatch. The three sector layers became **SDF symbol layers**; one greyscale image per shape, recoloured by the same `match` expression the circle layers used, so live colour edits and the colorblind palette keep working. Default grammar: **shape = sector, fill = public/private within it**. §3.
   - Two silent failure modes, both now guarded: the **SDF encoding** (edge must land at alpha 0.75, TinySDF's convention) and **`setStyle` dropping every added image** — i.e. every basemap switch would have made all institutions vanish (**T9.6**).

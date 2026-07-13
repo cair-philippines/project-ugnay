@@ -36,10 +36,13 @@ WebGL renders in software — MapLibre then draws for real and map assertions ar
 ### Four gotchas that will silently break your tests
 Each of these produced a *false* result before being fixed — they cost real debugging time:
 
-1. **Map pixels ≠ page pixels.** `map.project()` is relative to the **canvas**, which sits
-   *below* the ~45 px header. `page.mouse.click()` takes **viewport** coords. Add the canvas's
-   `getBoundingClientRect()` origin or every node click lands high and misses — silently, since
-   clicking empty map is a no-op.
+1. **Map pixels ≠ page pixels.** `map.project()` is relative to the **canvas**;
+   `page.mouse.click()` takes **viewport** coords. Always add the canvas's
+   `getBoundingClientRect()` origin — never hard-code an offset. (It happened to be ~45 px
+   while the header was a flex sibling; the header is now an *overlay* and the canvas is
+   full-bleed, so the origin is 0,0 — which is exactly why you read it rather than assume it.)
+   Get this wrong and every node click lands off-target and misses *silently*, since clicking
+   empty map is a no-op.
 2. **`map.jumpTo()` from `evaluate()` does nothing.** react-map-gl drives the map in
    *controlled* mode, so programmatic camera moves are reverted. Pan with a **real gesture**
    (`mouse.down`/`move`/`up`) or via the app's own controls.
@@ -179,6 +182,22 @@ Use a small, dense area for speed (e.g. a single municipality) and one large one
 1. Click "← Change area" in the header.
 
 **Expected:** The setup card **fades in** smoothly over the current map (not an abrupt pop). This is the one path where the fade-in is intended.
+
+---
+
+### T2.4 Nodes are held back, then fade in with the camera
+**Why:** institutions used to render the instant *their own tile* landed, so they popped in unevenly, tile by tile — while the camera **re-fitted on every arriving tile** (`fitKey` changes per tile). Two competing motions.
+
+**Steps:**
+1. Click **Explore map →** and read `icon-opacity` off `nodes-basic` ~150 ms later.
+2. Wait for the area to settle, and read it again.
+
+**Expected:** The app wraps the node-opacity expression in a reveal multiplier —
+`icon-opacity = ["*", <opacity expr>, 0 | 1]`.
+- **0** while the area is still loading (nothing drawn, however many tiles have arrived).
+- **1** once every tile is in — the camera flies once, and the fade (450 ms) starts *partway into* the flight so the pins are simply there when it lands.
+
+**What to check if broken:** the fit/reveal effect in `MapView` must be gated on `loading`. If it fits while tiles stream, the camera judders; if nodes render before `revealed`, they pop.
 
 ---
 
@@ -413,16 +432,19 @@ Use a small, dense area for speed (e.g. a single municipality) and one large one
 
 ---
 
-### T10.2 Hide-UI ("clear map") toggle + persistence
+### T10.2 Hide-UI ("clear map") — a DIRECTIONAL slide
 **Steps:**
 1. Click the **hide** (eye-off) button below the re-center button.
 
-**Expected:**
-- The top header, the Layers & Filters panel, the Legend, and the detail drawer all disappear — only the map + the re-center + the (now eye) button + the zoom +/- remain.
-- The button persists so the UI is recoverable; its icon flips to an open **eye**.
-2. Click it again → all chrome returns; icon flips back to eye-off.
+**Expected:** each panel exits toward **its own edge** over 300 ms — header **up**, Layers panel **right**, Legend **left**, detail drawer **right** — rather than being deleted. The map is being *revealed*, and the exit shows where each panel went, so restoring reads as reversible.
+- Assert on geometry, not on DOM presence: `header.bottom <= 0`, `panel.x >= innerWidth`, `legend.right <= 0`. **The panels stay mounted now**, so "is it in the DOM" tests nothing.
+- Hidden ≠ gone: every hidden panel must also be **`aria-hidden` + `inert`**, or a keyboard user tabs into a bar they cannot see.
+- The restore (eye) button persists; zoom and canvas remain.
+2. Click it again → all chrome slides back.
 
-**What to check if broken:** `uiHidden` lives in `App`; header/FilterPanel/Legend/DetailDrawer render only when `!uiHidden`. The control stack lives inside `MapView` so it stays visible in clear-map mode.
+**What to check if broken:** `uiHidden` lives in `App` and is passed *into* the header / FilterPanel / Legend as a prop; the drawer simply receives `node={null}`. The control stack lives inside `MapView` so it survives clear-map mode.
+
+> **The map must never resize.** The header is an *overlay* (not a flex sibling) precisely so that hiding it cannot change the map container's size — every resize reallocates and clears MapLibre's WebGL buffer. The canvas is a constant size in both states; assert it.
 
 ---
 
@@ -608,6 +630,9 @@ Run after every deploy (quick pass):
 | **Mobile: attribution visible** | 390×844 | Zoom + attribution sit above the sheet (attribution is a licence requirement) |
 | **Mobile: detail = bottom sheet** | 390×844 | Full-width, slides up; map pans **up** to clear it |
 | **No a11y leaks** | Any | No `aria-hidden` container holds focusable controls (all are `inert`) |
+| **No mojibake** | Any area | No rendered string contains `Ã`/`Â` (S1 repairs at ingest; S6 fails the build) |
+| **Nodes fade, not pop** | After Explore | Reveal multiplier 0 while loading → 1 after; 450ms fade |
+| **Clear map slides** | Eye button | header ↑ / panel → / legend ←; canvas size unchanged |
 | **No white squares** | **Satellite** basemap, small node size | `haloWidth / iconSize` < 6 at every size (check on satellite — the light basemap hides it) |
 | **Sector labels intact** | Appearance tab | "Higher Ed — Public/Private" shown in full, not truncated |
 | **Mobile viewport** | 390×844 | App shell sized in `dvh`, not `vh` — the primary action isn't hidden under the browser chrome |

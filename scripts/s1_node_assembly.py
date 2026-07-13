@@ -29,6 +29,9 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from modules.text_clean import fix_mojibake_df
+
 PROJECT_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_DIR))
 
@@ -302,6 +305,16 @@ def main():
         [_to_canonical(df_basic), _to_canonical(df_hei), _to_canonical(df_tesda)],
         ignore_index=True,
     )
+
+    # Repair mojibake before anything downstream sees it. Some upstream names arrive
+    # double-encoded — `ñ` as `Ã±` — and in a country full of Parañaque, Los Baños and
+    # Santo Niño that is not an edge case: a planner who sees "MontaÃ±eza NHS" reasonably
+    # concludes the whole dataset is untrustworthy. Repairing here (rather than in the
+    # frontend) means every consumer of institutions.parquet gets clean text, and a silent
+    # upstream regression shows up in this log instead of on the map.
+    df, n_repaired = fix_mojibake_df(df)
+    if n_repaired:
+        print(f"\n  Repaired mojibake in {n_repaired} text cell(s) — see modules/text_clean.py")
 
     # Normalize municity_psgc to 7-digit PSGC (strip barangay-level trailing zeros).
     # Basic-ed sources use 10-digit codes (e.g. '0105532000'); HEI/TESDA already use

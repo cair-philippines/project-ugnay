@@ -7,6 +7,54 @@ details: `documentation/deployment.md`.
 
 ---
 
+## 2026-07-13 — mojibake repair, landing preamble, motion
+
+### Fixed
+- **`ñ` was mojibaked in three school names.** `Concepcion Peque**Ã±**a NHS`,
+  `Monta**Ã±**eza NHS`, and `Tinorongan NHS (Formerly Sag**Ã±**ay Western HS)` — `Ã±` is
+  `ñ` double-encoded (UTF-8 bytes read as Latin-1, then re-encoded). The other **865** `ñ`
+  in the data were fine, so this was corrupt *source* data, not an app encoding fault.
+  In a country full of Parañaque, Los Baños and Santo Niño this is not cosmetic: a planner
+  who sees "MontaÃ±eza NHS" reasonably concludes the whole dataset is untrustworthy.
+  - **Root cause is upstream** — `project_coordinates`' gold parquets (3 `school_name` +
+    **222** `barangay` in public, **41** `barangay` in private). Ugnay carries only `name`
+    into its tiles, so only the 3 names were user-visible here; **the 263 barangays still
+    need fixing at source** for other consumers.
+  - **`modules/text_clean.py`** repairs it, and **S1 now normalises at ingest** so Ugnay can
+    never emit mojibake regardless of what upstream sends. **S6 fails the build** if a tile
+    would ship with it. `scripts/repair_tiles_mojibake.py` fixed the already-built tiles so
+    the correction ships without a full OSRM re-run.
+
+### Changed
+- **Nodes no longer pop in.** They used to render tile-by-tile as the area streamed in,
+  while the camera *re-fitted on every arriving tile*. Now the map waits for the whole area,
+  flies once, and the institutions **fade up during the flight** — reveal and motion are one
+  gesture, not two competing ones.
+- **"Clear map" is now a directional slide.** Each panel exits toward its own edge — header
+  up, Layers right, Legend left, drawer right (300ms) — instead of vanishing. The map is
+  *revealed*, and the exit shows where each panel went, so restoring reads as reversible.
+  - **The map now NEVER resizes.** The header became an overlay to make this possible, which
+    removed the last remaining source of WebGL-buffer clears (hiding the UI used to pull the
+    header out of the flex flow and resize the canvas). Canvas is a constant 1440×900.
+
+### Added
+- **A landing preamble.** Two columns on desktop (what this is, on the left; the choices, on
+  the right), stacked on mobile. It answers, before the user touches anything: what this is,
+  what they can do with it (three verbs), what it covers (**real** figures — 47,607 public ·
+  8,257 private · 2,431 HEIs · 7,891 TESDA), and — up front rather than buried in the legend
+  — **what it does not say**: reach is not enrolment.
+  - The mobile preamble is a **compact** variant. The desktop markup, stacked on a 390px
+    screen, pushed the region picker below the fold — so every visit would have begun by
+    scrolling past a wall of text to reach the one control you came for.
+
+### Tests
+- **44/44.** New **T2.4** (nodes held hidden while loading, then faded in with the camera).
+  **T10.2** rewritten: it now asserts the *directional slide* (header ↑, panel →, legend ←)
+  and that the hidden chrome is `inert` — the panels stay mounted now, so "is it in the DOM"
+  no longer means anything.
+
+---
+
 ## 2026-07-12 — shape/halo fixes, mobile viewport, legend typesetting
 
 ### Fixed

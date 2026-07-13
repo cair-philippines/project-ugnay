@@ -88,8 +88,15 @@ export default function MapView({
   uiHidden,
   onToggleUiHidden,
   isMobile = false,
+  loading = false,
+  exploreSeq = 0,
 }) {
   const [viewState, setViewState] = useState(INITIAL_VIEW_STATE);
+  // Nodes stay hidden from the moment a new area is requested until the tiles are all in
+  // and the camera is most of the way through its flight. Default true so that ordinary
+  // filter/sector changes never trigger a fade.
+  const [revealed, setRevealed] = useState(true);
+  const revealTimer = useRef(null);
   const [hoverNode, setHoverNode] = useState(null);
   const [ready, setReady] = useState(false);
   const mapRef = useRef(null);
@@ -200,11 +207,21 @@ export default function MapView({
     [iconExpr, selId, nodeSize]
   );
 
+  // Gate every node's opacity on the reveal. Multiplying keeps this a data-driven
+  // EXPRESSION in both states, so MapLibre interpolates between them; swapping to a bare
+  // constant 0 would snap instead of fade.
+  const revealedOpacityExpr = useMemo(
+    () => ["*", nodeOpacityExpr, revealed ? 1 : 0],
+    [nodeOpacityExpr, revealed]
+  );
+
   const symbolPaint = useMemo(
     () => ({
       "icon-color": colorExpr,
-      "icon-opacity": nodeOpacityExpr,
-      "icon-opacity-transition": { duration: 260 },
+      "icon-opacity": revealedOpacityExpr,
+      // 450ms to fade up, but a snappier 260ms for the ordinary select/dim changes. The
+      // reveal is the slower of the two because it is carrying the whole area into view.
+      "icon-opacity-transition": { duration: revealed ? 450 : 0 },
       // The old circle-stroke: white hairline normally, dark ring when pinned.
       //
       // The widths MUST scale with the node size. `icon-halo-width` is divided by
@@ -220,18 +237,42 @@ export default function MapView({
       ],
       "icon-halo-blur": 0,
     }),
-    [colorExpr, selId, nodeSize, nodeOpacityExpr]
+    [colorExpr, selId, nodeSize, revealedOpacityExpr, revealed]
   );
 
   const fitKey =
     Object.keys(tiles).sort().join(",") + "|" + [...activeSectors].sort().join(",");
+
+  // A new area was requested — hide the nodes until they are ALL in.
+  useEffect(() => {
+    if (!exploreSeq) return;
+    setRevealed(false);
+  }, [exploreSeq]);
+
+  // Fit and reveal as ONE gesture.
+  //
+  // Two things made the old entrance clunky, and both are fixed by waiting for `loading`
+  // to clear: (1) `fitKey` changes as EACH tile arrives, so the camera used to re-fit over
+  // and over while the area streamed in; (2) nodes rendered the instant their tile landed,
+  // so they popped in unevenly, tile by tile.
+  //
+  // Now: nothing is drawn until every tile is in, then the camera flies once, and the nodes
+  // fade up *during* the flight — so they are simply there when it lands, rather than
+  // arriving as a second, separate event.
   useEffect(() => {
     const map = mapRef.current?.getMap();
-    if (!map) return;
+    if (!map || loading) return;
     const b = robustBounds(nodesFC.features);
     if (!b) return;
     map.fitBounds(b, { padding: 60, maxZoom: 14, duration: 800 });
-  }, [fitKey]); // eslint-disable-line react-hooks/exhaustive-deps
+    if (!revealed) {
+      clearTimeout(revealTimer.current);
+      // Start the fade partway into the 800ms flight; the 450ms fade then lands with it.
+      revealTimer.current = setTimeout(() => setRevealed(true), 350);
+    }
+  }, [fitKey, loading]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => () => clearTimeout(revealTimer.current), []);
 
   // Waze-style re-center: snap the view back to frame the current area's institutions.
   // Same robust fit the auto-fit uses, but on demand.
@@ -420,7 +461,8 @@ export default function MapView({
             "circle-color": "rgba(0,0,0,0)",
             "circle-stroke-color": HALO_COLOR,
             "circle-stroke-width": 2.4,
-            "circle-stroke-opacity": 0.9,
+            "circle-stroke-opacity": revealed ? 0.9 : 0,
+            "circle-stroke-opacity-transition": { duration: revealed ? 450 : 0 },
           }}
         />
         {/* Hover feedback. The nodes themselves are symbols now and symbols can't read

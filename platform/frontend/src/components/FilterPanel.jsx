@@ -156,6 +156,7 @@ export default function FilterPanel({
   onGapToggle,
   basemap,
   onBasemap,
+  uiHidden = false,
 }) {
   // The sheet starts CLOSED on mobile (the whole point is an unobstructed map); the
   // desktop panel starts open, where there's room for it.
@@ -172,10 +173,21 @@ export default function FilterPanel({
   // with the drawer's own slide) rather than sitting underneath it.
   // Mobile: full-width sheet pinned to the bottom edge. It does NOT shift — the mobile
   // detail view is itself a bottom sheet and simply covers it.
+  //
+  // "Clear map" mode slides the panel out to the edge it lives on — right on desktop, down
+  // on mobile — rather than deleting it. The map is being *revealed*, not cleared, and the
+  // exit shows you where the panel went, so bringing it back reads as reversible.
+  // `top-14` (not `top-3`): the header is now an overlay, so the panel must clear it.
+  const exit = isMobile
+    ? "translate-y-full opacity-0 pointer-events-none"
+    : "translate-x-[calc(100%+1.5rem)] opacity-0 pointer-events-none";
+
   const shell = isMobile
-    ? "ugnay-sheet absolute inset-x-0 bottom-0 z-20 rounded-t-2xl border-t"
-    : `absolute top-3 right-3 z-10 w-64 rounded-xl border transition-transform duration-300 ease-out ${
-        drawerOpen ? "-translate-x-72" : ""
+    ? `ugnay-sheet absolute inset-x-0 bottom-0 z-20 rounded-t-2xl border-t transition-[transform,opacity] duration-300 ease-out ${
+        uiHidden ? exit : ""
+      }`
+    : `absolute top-14 right-3 z-10 w-64 rounded-xl border transition-[transform,opacity] duration-300 ease-out ${
+        uiHidden ? exit : drawerOpen ? "-translate-x-72" : ""
       }`;
 
   // Body height: on mobile cap the sheet at 70vh so the map is never fully swallowed.
@@ -186,6 +198,8 @@ export default function FilterPanel({
 
   return (
     <div
+      aria-hidden={uiHidden}
+      inert={uiHidden}
       className={`bg-white/95 backdrop-blur shadow-lg border-gray-100 text-sm overflow-hidden flex flex-col ${shell}`}
     >
       {/* The header doubles as the collapse toggle, and the BODY rolls open/shut

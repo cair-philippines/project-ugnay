@@ -22,6 +22,116 @@ const SECTOR_LAYERS = [
   },
 ];
 
+
+// Real figures from the pipeline manifest (output/nodes/_manifest.json). Stated because a
+// planner's first question is "does this actually cover my area?" — and because a number
+// you can check is worth more than an adjective you can't.
+const COVERAGE = [
+  { n: "47,607", label: "DepEd public" },
+  { n: "8,257", label: "DepEd private" },
+  { n: "2,431", label: "CHED HEIs" },
+  { n: "7,891", label: "TESDA centers" },
+];
+
+// The preamble exists to answer, before the user touches anything: what IS this, what will
+// it show me, and what must I not conclude from it. The last part matters as much as the
+// first — this map is easy to over-read, and a planner who mistakes "reachable" for
+// "attended" would draw the wrong conclusion from a perfectly correct map.
+function Preamble({ compact = false }) {
+  // `compact` is the phone variant. The desktop preamble can afford to breathe in its own
+  // column; stacked on a 390px screen the SAME markup pushed "Choose what to map" and the
+  // region picker clean below the fold — so every visit would begin by scrolling past a
+  // wall of text to reach the one control you came for. Compact keeps every idea (lead,
+  // the three verbs, coverage, the caveat) and simply spends less vertical space on each.
+  const pad = compact ? "p-6" : "p-7 sm:p-9";
+  const title = compact ? "text-2xl" : "text-3xl";
+  const lead = compact ? "text-sm" : "text-[15px]";
+  const body = compact ? "text-xs" : "text-[13px]";
+  const gap = compact ? "space-y-2" : "space-y-2.5";
+
+  return (
+    <div
+      className={`flex flex-col justify-center h-full ${pad} text-white bg-gradient-to-br from-slate-800 via-slate-800 to-blue-900`}
+    >
+      <div className="flex items-baseline gap-2.5 flex-wrap">
+        <span className={`${title} font-bold tracking-tight`}>Ugnay</span>
+        <span className="text-xs sm:text-sm text-blue-200/70">Educational Pathway Explorer</span>
+      </div>
+
+      <p className={`mt-3 ${lead} leading-relaxed text-blue-50`}>
+        See where a learner can keep going —{" "}
+        <span className="font-semibold text-white">and where the next step isn’t there.</span>
+      </p>
+
+      {!compact && (
+        <p className="mt-3 text-[13px] leading-relaxed text-blue-100/70">
+          Every school, university and training center in the country on one map — the three
+          agencies that run Philippine education, side by side for the first time.
+        </p>
+      )}
+
+      {/* What you can actually DO. Three verbs, in the order you'd do them. */}
+      <ul className={`mt-4 ${gap} ${body} text-blue-50/90`}>
+        <li className="flex gap-2.5">
+          <span className="text-blue-300 mt-px">→</span>
+          <span>
+            <span className="font-semibold text-white">Pick an area</span> — a region, a
+            province, a single city.
+          </span>
+        </li>
+        <li className="flex gap-2.5">
+          <span className="text-blue-300 mt-px">→</span>
+          <span>
+            <span className="font-semibold text-white">Tap an institution</span> to see what’s
+            within reach <span className="whitespace-nowrap">by road</span> that offers
+            something it doesn’t — the next grade, a university, a trade.
+          </span>
+        </li>
+        <li className="flex gap-2.5">
+          <span className="text-blue-300 mt-px">→</span>
+          <span>
+            <span className="font-semibold text-white">Turn on Gap analysis</span> to surface
+            where that next step is missing entirely.
+          </span>
+        </li>
+      </ul>
+
+      {/* Coverage — the credibility line. A planner's first question is "does this cover my
+          area?", and a number they can check beats an adjective they can't. */}
+      <div className={`${compact ? "mt-4 pt-3" : "mt-6 pt-5"} border-t border-white/10`}>
+        {compact ? (
+          <div className="flex flex-wrap gap-x-4 gap-y-1">
+            {COVERAGE.map((c) => (
+              <div key={c.label} className="flex items-baseline gap-1.5">
+                <span className="text-sm font-semibold tabular-nums">{c.n}</span>
+                <span className="text-[10px] text-blue-200/60">{c.label}</span>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="grid grid-cols-2 gap-x-4 gap-y-2.5">
+            {COVERAGE.map((c) => (
+              <div key={c.label}>
+                <div className="text-lg font-semibold tabular-nums leading-none">{c.n}</div>
+                <div className="text-[11px] text-blue-200/60 mt-0.5">{c.label}</div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* The honest caveat, up front rather than buried in the legend. It is the one
+            sentence that stops the map being misread. */}
+        <p className={`${compact ? "mt-3" : "mt-5"} text-[11px] leading-relaxed text-blue-200/50`}>
+          Distances are <span className="text-blue-100/80">routed road distances</span>, not
+          straight lines. This map shows what is{" "}
+          <span className="text-blue-100/80">within reach</span> — not who actually enrols.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+
 export default function SetupView({
   adminIndex,
   isLoadingIndex,
@@ -77,28 +187,49 @@ export default function SetupView({
 
   return (
     <div
-      className={`absolute inset-0 z-20 flex items-center justify-center bg-gradient-to-br from-slate-50 to-blue-50 transition-opacity duration-300 ease-out ${
+      className={`absolute inset-0 z-50 flex items-center justify-center bg-gradient-to-br from-slate-50 to-blue-50 transition-opacity duration-300 ease-out ${
         backdropShown ? "opacity-100" : "opacity-0"
       }`}
     >
-      {/* The card is a flex COLUMN: only the middle scrolls, and the Explore button lives in
-          a pinned footer. Previously the whole card was one scroll box, so on a phone —
-          once a region was chosen and the province list appeared — the button fell below
-          the fold and you had to scroll a nested container to reach it. The primary action
-          must never be something you have to go looking for. */}
+      {/* TWO COLUMNS on desktop — the preamble (what this is, and what it isn't) on the
+          left, the controls on the right; STACKED on mobile, preamble first. The split is
+          not decoration: the left column answers "should I trust this and what will it show
+          me?", which a user needs settled BEFORE they are asked to make choices on the right.
+
+          Each column scrolls independently, and the Explore button sits in a pinned footer
+          under the right column, so the primary action is never something you have to go
+          hunting for. */}
       <div
-        className={`w-full max-w-lg bg-white rounded-2xl shadow-xl border border-gray-100 m-4 max-h-[92dvh] flex flex-col transition-all duration-500 ease-out ${
-          shown ? "opacity-100 translate-y-0 scale-100" : "opacity-0 translate-y-3 scale-[0.98]"
-        }`}
+        className={`w-full max-w-4xl bg-white rounded-2xl shadow-2xl border border-gray-100 m-4 max-h-[92dvh]
+          flex flex-col md:grid md:grid-cols-[minmax(0,1fr)_minmax(0,1.05fr)] overflow-hidden
+          transition-all duration-500 ease-out ${
+            shown ? "opacity-100 translate-y-0 scale-100" : "opacity-0 translate-y-3 scale-[0.98]"
+          }`}
       >
-      <div className="overflow-y-auto overscroll-contain px-6 sm:px-7 pt-6 sm:pt-7 pb-2">
+      {/* DESKTOP: the preamble is its own column, scrolling independently.
+          Exactly one of the two Preambles is ever DISPLAYED (`hidden` is display:none, so
+          the other is out of the a11y tree too) — the mobile copy has to live inside the
+          scroll container with the controls, and the desktop copy has to live in its own
+          grid column, and those are genuinely different places in the tree. */}
+      <div className="hidden md:block md:overflow-y-auto overscroll-contain">
+        <Preamble />
+      </div>
+
+      {/* RIGHT (desktop) / EVERYTHING (mobile) — the choices. */}
+      <div className="flex flex-col min-h-0 flex-1">
+      <div className="overflow-y-auto overscroll-contain flex-1">
+      {/* MOBILE: the preamble scrolls WITH the controls, as one continuous read. A separate
+          scrolling box for it would be a nested scroll trap, and stacking it as a fixed row
+          would push the Explore button off the bottom of the screen — which is exactly the
+          bug this layout has to avoid. */}
+      <div className="md:hidden">
+        <Preamble compact />
+      </div>
+      <div className="px-6 sm:px-7 pt-6 sm:pt-7 pb-2">
         <div className="mb-5">
-          <div className="flex items-center gap-2">
-            <span className="text-2xl font-bold text-blue-600">Ugnay</span>
-            <span className="text-sm text-gray-400">Educational Pathway Explorer</span>
-          </div>
-          <p className="text-sm text-gray-500 mt-1">
-            Choose an area and the education sectors you want to see, then explore the map.
+          <div className="text-sm font-semibold text-gray-800">Choose what to map</div>
+          <p className="text-xs text-gray-500 mt-1">
+            Pick an area and the sectors you want to see.
           </p>
         </div>
 
@@ -170,9 +301,10 @@ export default function SetupView({
         </div>
 
       </div>
+      </div>
 
       {/* Pinned footer — always on screen, whatever the list above is doing. */}
-      <div className="shrink-0 px-6 sm:px-7 pt-3 pb-6 sm:pb-7 border-t border-gray-100 bg-white rounded-b-2xl">
+      <div className="shrink-0 px-6 sm:px-7 pt-3 pb-6 sm:pb-7 border-t border-gray-100 bg-white">
         <button
           onClick={onExplore}
           disabled={!canExplore}
@@ -191,6 +323,7 @@ export default function SetupView({
               : "Select an area and at least one sector to continue."}
           </p>
         )}
+      </div>
       </div>
       </div>
     </div>

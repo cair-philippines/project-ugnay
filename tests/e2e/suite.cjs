@@ -263,7 +263,7 @@ const sliderFor = (p, label) =>
       await p.addInitScript(() => {
         window.__samples = [];
         const tick = () => {
-          const ov = document.querySelector(".absolute.inset-0.z-20");
+          const ov = document.querySelector(".absolute.inset-0.z-50");
           const cv = document.querySelector(".maplibregl-canvas");
           window.__samples.push({
             t: performance.now(),
@@ -291,7 +291,7 @@ const sliderFor = (p, label) =>
       const p = await ctx.newPage();
       await enterMap(p, { region: "Cordillera Administrative Region (CAR)", province: "Benguet" });
       const ovVisible = await p.evaluate(() => {
-        const ov = document.querySelector(".absolute.inset-0.z-20");
+        const ov = document.querySelector(".absolute.inset-0.z-50");
         return ov ? parseFloat(getComputedStyle(ov).opacity) : 0;
       });
       assert(ovVisible < 0.05, `setup overlay still visible after explore (opacity ${ovVisible})`);
@@ -310,17 +310,62 @@ const sliderFor = (p, label) =>
       for (let i = 0; i < 12; i++) {
         samples.push(
           await p.evaluate(() => {
-            const ov = document.querySelector(".absolute.inset-0.z-20");
+            const ov = document.querySelector(".absolute.inset-0.z-50");
             return ov ? parseFloat(getComputedStyle(ov).opacity) : null;
           })
         );
         await p.waitForTimeout(30);
       }
-      const end = await p.evaluate(() => parseFloat(getComputedStyle(document.querySelector(".absolute.inset-0.z-20")).opacity));
+      const end = await p.evaluate(() => parseFloat(getComputedStyle(document.querySelector(".absolute.inset-0.z-50")).opacity));
       assert(end > 0.95, `overlay did not reach full opacity (${end})`);
       const sawFade = samples.some((v) => v !== null && v < 0.95);
       await p.close();
       return sawFade ? "fade-in observed (intermediate opacity captured)" : "reached opacity 1 (fade too fast to sample)";
+    });
+
+    await T("T2.4", "Nodes are held back, then fade in with the camera", async () => {
+      const p = await ctx.newPage();
+      await p.goto(BASE, { waitUntil: "networkidle", timeout: 60000 });
+      await p.waitForSelector("select", { timeout: 30000 });
+      await p.locator("select").first().selectOption({ label: "Cordillera Administrative Region (CAR)" });
+      await p.waitForTimeout(600);
+      await p.getByRole("button", { name: "Clear", exact: true }).click();
+      await p.locator("label").filter({ hasText: /^Benguet$/ }).first().locator("input[type=checkbox]").check();
+      await p.waitForTimeout(400);
+
+      // The reveal is a multiplier the app wraps around the node-opacity expression:
+      //   icon-opacity = ["*", <opacity expr>, 0 | 1]
+      // 0 while the area is still arriving, 1 once it's in — so nodes can't pop in tile by tile.
+      const revealMul = () => p.evaluate(() => {
+        const e = window.__ugnayMap?.getPaintProperty("nodes-basic", "icon-opacity");
+        return Array.isArray(e) && e[0] === "*" ? e[2] : null;
+      });
+
+      await p.getByRole("button", { name: /Explore map/ }).click();
+      await p.waitForTimeout(150);
+      const during = await revealMul();
+      assert(during === 0, `nodes should be held hidden while the area loads (reveal multiplier = ${during})`);
+
+      await p.waitForFunction(
+        () => {
+          const d = window.__ugnayMap?.getSource("nodes")?._data;
+          return d && d.features && d.features.length > 0;
+        },
+        null,
+        { timeout: 60000 }
+      );
+      await p.waitForTimeout(3000); // tiles in, camera flown, fade done
+      const after = await revealMul();
+      assert(after === 1, `nodes never revealed (reveal multiplier stuck at ${after})`);
+
+      const dur = await p.evaluate(() =>
+        window.__ugnayMap.getPaintProperty("nodes-basic", "icon-opacity-transition")
+      );
+      assert(dur && dur.duration >= 300, `the reveal should FADE, not snap (transition ${JSON.stringify(dur)})`);
+      const drawn = await renderedCount(p, "nodes-basic");
+      assert(drawn > 0, "no nodes rendered after the reveal");
+      await p.close();
+      return `held at 0 while loading → revealed to 1 over ${dur.duration}ms; ${drawn} pins drawn`;
     });
   }
 
@@ -749,32 +794,55 @@ const sliderFor = (p, label) =>
     return `dragged ${dAway.toFixed(3)}° away → re-centered to within ${dBack.toFixed(5)}°, zoom ${back.z.toFixed(2)}`;
   });
 
-  await T("T10.2", "Hide-UI toggle hides all chrome and persists a restore button", async () => {
+  await T("T10.2", "Hide-UI slides each panel to its own edge; restore button persists", async () => {
     const btn = p.locator('button[title*="Hide panels" i]');
     assert((await btn.count()) > 0, "hide-UI button not found (title*='Hide panels')");
-    await btn.first().click();
-    await p.waitForTimeout(700);
-    const state = await p.evaluate(() => {
-      const t = document.body.innerText;
+
+    const geom = () => p.evaluate(() => {
+      const box = (sel) => {
+        const e = document.querySelector(sel);
+        if (!e) return null;
+        const r = e.getBoundingClientRect();
+        return { x: Math.round(r.x), right: Math.round(r.right), bottom: Math.round(r.bottom),
+                 hidden: e.getAttribute("aria-hidden") === "true", inert: e.hasAttribute("inert") };
+      };
       return {
-        header: /Change area/.test(t),
-        panel: /LAYERS & FILTERS/i.test(t),
-        legend: /LEGEND/.test(t),
+        header: box("header"),
+        panel: box(".absolute.top-14.right-3") || box("[class*='top-14'][class*='right-3']"),
+        legend: box(".absolute.bottom-3.left-3"),
         restore: !!document.querySelector('button[title*="Show panels" i]'),
         zoom: !!document.querySelector(".maplibregl-ctrl-zoom-in"),
         canvas: !!document.querySelector(".maplibregl-canvas"),
+        w: window.innerWidth,
       };
     });
-    assert(!state.header, "header still visible in clear-map mode");
-    assert(!state.panel, "Layers & Filters still visible in clear-map mode");
-    assert(!state.legend, "Legend still visible in clear-map mode");
-    assert(state.restore, "restore (eye) button missing — UI would be unrecoverable");
-    assert(state.zoom && state.canvas, "zoom control / canvas should remain");
+
+    const before = await geom();
+    assert(before.header && before.header.bottom > 0, "header not on screen to begin with");
+
+    await btn.first().click();
+    await p.waitForTimeout(700); // let the 300ms slide finish
+    const after = await geom();
+
+    // The panels must actually LEAVE — each toward its own edge — not merely fade.
+    assert(after.header.bottom <= 1, `header did not slide up (bottom ${after.header.bottom})`);
+    if (after.panel) {
+      assert(after.panel.x >= after.w - 2, `Layers panel did not slide right (x ${after.panel.x} of ${after.w})`);
+    }
+    if (after.legend) {
+      assert(after.legend.right <= 1, `Legend did not slide left (right ${after.legend.right})`);
+    }
+    // Slid off-screen is not "gone": they must also leave the a11y tree and the tab order,
+    // or a keyboard user tabs into a bar they cannot see.
+    assert(after.header.hidden && after.header.inert, "hidden header is not aria-hidden + inert");
+    assert(after.restore, "restore (eye) button missing — the UI would be unrecoverable");
+    assert(after.zoom && after.canvas, "zoom control / canvas should remain");
+
     await p.locator('button[title*="Show panels" i]').first().click();
     await p.waitForTimeout(700);
-    const restored = await p.evaluate(() => /LAYERS & FILTERS/i.test(document.body.innerText) && /Change area/.test(document.body.innerText));
-    assert(restored, "chrome did not come back after clicking the restore button");
-    return "header/panel/legend hidden; eye button persists; restore works";
+    const back = await geom();
+    assert(back.header.bottom > 0 && !back.header.hidden, "chrome did not come back");
+    return `header ↑, panel →, legend ← (each to its own edge); all inert while hidden; restore works`;
   });
 
   await T("T10.3", "Controls ride the drawer slide (no overlap)", async () => {

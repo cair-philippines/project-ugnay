@@ -53,12 +53,18 @@ jobs:
         uses: google-github-actions/setup-gcloud@v2
 
       # Cache the heavy, stable tiles/boundaries so UI-only pushes skip the GCS pull.
+      #
+      # `-r2` is a DATA revision, bumped whenever the artifacts in the bucket change, and it
+      # is deliberately separate from the ARTIFACT_VERSION repo variable: the variable may
+      # or may not be set, so bumping only the variable's *default* here would be a no-op if
+      # someone had set it. Changing the key itself invalidates the cache either way.
+      #   r2 (2026-07-13) — tiles re-seeded with the mojibake repair (3 school names).
       - name: Cache data artifacts
         id: artifact-cache
         uses: actions/cache@v4
         with:
           path: output
-          key: ugnay-artifacts-${{ vars.ARTIFACT_VERSION || 'v1' }}
+          key: ugnay-artifacts-${{ vars.ARTIFACT_VERSION || 'v1' }}-r2
 
       - name: Pull tiles + boundaries from GCS
         if: steps.artifact-cache.outputs.cache-hit != 'true'

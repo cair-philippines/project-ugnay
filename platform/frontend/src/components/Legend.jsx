@@ -121,11 +121,20 @@ export function LegendBody({ sectorColors, nodeShapes, gapVisible, thresholdKm }
   );
 }
 
-export default function Legend({ sectorColors, nodeShapes, gapVisible, thresholdKm }) {
+export default function Legend({ sectorColors, nodeShapes, gapVisible, thresholdKm, uiHidden = false }) {
   const [open, setOpen] = useState(true);
 
   return (
-    <div className="absolute bottom-3 left-3 z-10 flex flex-col justify-end pointer-events-none">
+    // "Clear map" slides the legend out to its own edge (left), rather than deleting it —
+    // the map is being revealed, and the exit shows where the panel went.
+    <div
+      aria-hidden={uiHidden}
+      inert={uiHidden}
+      className={`absolute bottom-3 left-3 z-10 flex flex-col justify-end pointer-events-none
+        transition-[transform,opacity] duration-300 ease-out will-change-transform ${
+          uiHidden ? "-translate-x-[calc(100%+1.5rem)] opacity-0" : ""
+        }`}
+    >
       {/* Fixed width in both states. Collapsing only clips the body's HEIGHT — the body is
           still in the layout, so a shrink-to-fit box would take its widest line (the
           caveat paragraph) and the "collapsed" pill would end up wider than the panel. */}
