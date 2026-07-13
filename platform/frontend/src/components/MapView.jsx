@@ -38,6 +38,12 @@ const LINE_LAYOUT = { "line-cap": "round", "line-join": "round" };
 
 const HALO_COLOR = ["match", ["get", "gap"], "red", "#DC2626", "amber", "#F59E0B", "#00000000"];
 
+// How long the institutions take to fade up once an area has finished loading.
+const REVEAL_MS = 450;
+// The resting opacity of an ordinary node — the value the reveal fades UP to, and the same
+// value the data-driven expression yields for a normal node, so the hand-over is invisible.
+const NODE_ALPHA = 0.92;
+
 function nodesGeoJSON(nodes, nearestIndex, thresholdKm, gapVisible, subcats, dimmed) {
   return {
     type: "FeatureCollection",
@@ -90,13 +96,29 @@ export default function MapView({
   isMobile = false,
   loading = false,
   exploreSeq = 0,
+  onContextLost,
 }) {
   const [viewState, setViewState] = useState(INITIAL_VIEW_STATE);
   // Nodes stay hidden from the moment a new area is requested until the tiles are all in
   // and the camera is most of the way through its flight. Default true so that ordinary
   // filter/sector changes never trigger a fade.
-  const [revealed, setRevealed] = useState(true);
-  const revealTimer = useRef(null);
+  // "hidden" → "fading" → "done".
+  //
+  // Why three states and not a boolean: **MapLibre does not interpolate DATA-DRIVEN paint
+  // properties.** In `DataDrivenProperty.interpolate(a, b, t)`, if either side is not a
+  // constant it just returns `b`. Our node opacity is an expression (it reads `dim` and
+  // `node_id`), so ANY transition on it is ignored and the change lands instantly — which
+  // is precisely why the reveal popped no matter what duration was set.
+  //
+  // So the fade runs on a CONSTANT (constants do interpolate), and only once it has landed
+  // do we hand back to the data-driven expression. At that hand-over the expression already
+  // evaluates to the same 0.92 for ordinary nodes, so nothing visibly changes.
+  const [revealPhase, setRevealPhase] = useState("done");
+  const revealTimers = useRef([]);
+  const clearRevealTimers = () => {
+    revealTimers.current.forEach(clearTimeout);
+    revealTimers.current = [];
+  };
   const [hoverNode, setHoverNode] = useState(null);
   const [ready, setReady] = useState(false);
   const mapRef = useRef(null);
@@ -207,21 +229,21 @@ export default function MapView({
     [iconExpr, selId, nodeSize]
   );
 
-  // Gate every node's opacity on the reveal. Multiplying keeps this a data-driven
-  // EXPRESSION in both states, so MapLibre interpolates between them; swapping to a bare
-  // constant 0 would snap instead of fade.
-  const revealedOpacityExpr = useMemo(
-    () => ["*", nodeOpacityExpr, revealed ? 1 : 0],
-    [nodeOpacityExpr, revealed]
-  );
+  // A CONSTANT while revealing (constants interpolate), the real expression once revealed.
+  const iconOpacity = useMemo(() => {
+    if (revealPhase === "hidden") return 0;
+    if (revealPhase === "fading") return NODE_ALPHA; // constant → MapLibre actually fades it
+    return nodeOpacityExpr;
+  }, [revealPhase, nodeOpacityExpr]);
 
   const symbolPaint = useMemo(
     () => ({
       "icon-color": colorExpr,
-      "icon-opacity": revealedOpacityExpr,
-      // 450ms to fade up, but a snappier 260ms for the ordinary select/dim changes. The
-      // reveal is the slower of the two because it is carrying the whole area into view.
-      "icon-opacity-transition": { duration: revealed ? 450 : 0 },
+      "icon-opacity": iconOpacity,
+      // Fixed duration, never derived from state: react-map-gl applies paint properties in
+      // object order, so a duration computed in the same render as the opacity would be
+      // installed *after* it and apply only to the next change.
+      "icon-opacity-transition": { duration: REVEAL_MS },
       // The old circle-stroke: white hairline normally, dark ring when pinned.
       //
       // The widths MUST scale with the node size. `icon-halo-width` is divided by
@@ -237,16 +259,22 @@ export default function MapView({
       ],
       "icon-halo-blur": 0,
     }),
-    [colorExpr, selId, nodeSize, revealedOpacityExpr, revealed]
+    [colorExpr, selId, nodeSize, iconOpacity]
   );
 
   const fitKey =
     Object.keys(tiles).sort().join(",") + "|" + [...activeSectors].sort().join(",");
 
-  // A new area was requested — hide the nodes until they are ALL in.
+  // A new area was requested — hide the nodes until they are ALL in, and drop any hover
+  // state left over from the previous area. Without the clear, the popup for a node that
+  // no longer exists keeps rendering at its old lng/lat — now far outside the view, which
+  // MapLibre transforms to a large negative offset, i.e. it flashes in the TOP-LEFT corner.
   useEffect(() => {
     if (!exploreSeq) return;
-    setRevealed(false);
+    clearRevealTimers();
+    setRevealPhase("hidden");
+    setHoverNode(null);
+    hoverFidRef.current = null;
   }, [exploreSeq]);
 
   // Fit and reveal as ONE gesture.
@@ -265,14 +293,19 @@ export default function MapView({
     const b = robustBounds(nodesFC.features);
     if (!b) return;
     map.fitBounds(b, { padding: 60, maxZoom: 14, duration: 800 });
-    if (!revealed) {
-      clearTimeout(revealTimer.current);
-      // Start the fade partway into the 800ms flight; the 450ms fade then lands with it.
-      revealTimer.current = setTimeout(() => setRevealed(true), 350);
+    if (revealPhase === "hidden") {
+      clearRevealTimers();
+      revealTimers.current.push(
+        // Start the fade partway into the 800ms flight, so the pins are settling in as the
+        // camera lands rather than arriving as a separate second event…
+        setTimeout(() => setRevealPhase("fading"), 350),
+        // …then hand back to the data-driven expression once the fade has finished.
+        setTimeout(() => setRevealPhase("done"), 350 + REVEAL_MS)
+      );
     }
   }, [fitKey, loading]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  useEffect(() => () => clearTimeout(revealTimer.current), []);
+  useEffect(() => clearRevealTimers, []);
 
   // Waze-style re-center: snap the view back to frame the current area's institutions.
   // Same robust fit the auto-fit uses, but on demand.
@@ -287,6 +320,46 @@ export default function MapView({
     const map = mapRef.current?.getMap();
     if (map && typeof window !== "undefined") window.__ugnayMap = map; // probe hook
   }, [ready]);
+
+  // A lost WebGL context is the one failure that looks like a bug in *our* code but isn't:
+  // the canvas freezes on its last frame, the map stops responding to drags and to the zoom
+  // buttons, and any popup sticks at the container's origin (top-left) because MapLibre is
+  // no longer transforming it — while the React chrome around it keeps working perfectly.
+  // Only a reload fixes it. MapLibre does NOT recover on its own.
+  //
+  // The browser drops a context on a GPU driver reset, on memory pressure, or when a tab has
+  // too many live contexts — none of which we control. So: ask for a restore, and if the
+  // browser doesn't give one, tell App to remount the map with a fresh context. The tiles
+  // are already in memory, so recovery costs a re-fit, not a re-download.
+  useEffect(() => {
+    const map = mapRef.current?.getMap();
+    const canvas = map?.getCanvas();
+    if (!canvas) return;
+    let restoreTimer = null;
+
+    const onLost = (e) => {
+      e.preventDefault(); // without this the context can never be restored
+      console.warn("MAPLIBRE: WebGL context lost — attempting recovery");
+      restoreTimer = setTimeout(() => onContextLost?.(), 1500);
+    };
+    const onRestored = () => {
+      clearTimeout(restoreTimer);
+      console.warn("MAPLIBRE: WebGL context restored");
+      try {
+        map.triggerRepaint();
+      } catch {
+        onContextLost?.(); // repaint on a half-dead map — remount instead
+      }
+    };
+
+    canvas.addEventListener("webglcontextlost", onLost);
+    canvas.addEventListener("webglcontextrestored", onRestored);
+    return () => {
+      clearTimeout(restoreTimer);
+      canvas.removeEventListener("webglcontextlost", onLost);
+      canvas.removeEventListener("webglcontextrestored", onRestored);
+    };
+  }, [ready, onContextLost]);
 
   // Register the shape images, and RE-register them on every style load. `setStyle` (i.e.
   // every basemap switch) throws away all images the app added; react-map-gl re-adds our
@@ -374,8 +447,16 @@ export default function MapView({
   }, []);
 
   const NODE_LAYERS = ["nodes-basic", "nodes-higher", "nodes-techvoc"];
-  // Don't double up: while a node is pinned, don't also hover-card it.
-  const showHover = hoverNode && hoverNode.node_id !== selId;
+  // Don't double up: while a node is pinned, don't also hover-card it. And never render a
+  // popup for a node that has left the current area, or for one with a bad coordinate —
+  // MapLibre throws on an invalid LngLat, and a throw inside its update path can take the
+  // whole render loop down with it (a frozen, undraggable map).
+  const showHover =
+    hoverNode &&
+    hoverNode.node_id !== selId &&
+    nodeIndex[hoverNode.node_id] &&
+    Number.isFinite(hoverNode.lon) &&
+    Number.isFinite(hoverNode.lat);
 
   return (
     <Map
@@ -461,8 +542,9 @@ export default function MapView({
             "circle-color": "rgba(0,0,0,0)",
             "circle-stroke-color": HALO_COLOR,
             "circle-stroke-width": 2.4,
-            "circle-stroke-opacity": revealed ? 0.9 : 0,
-            "circle-stroke-opacity-transition": { duration: revealed ? 450 : 0 },
+            // A constant, so this one does fade (see the note on revealPhase).
+            "circle-stroke-opacity": revealPhase === "hidden" ? 0 : 0.9,
+            "circle-stroke-opacity-transition": { duration: REVEAL_MS },
           }}
         />
         {/* Hover feedback. The nodes themselves are symbols now and symbols can't read

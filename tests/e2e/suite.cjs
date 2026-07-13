@@ -240,6 +240,38 @@ const sliderFor = (p, label) =>
       return "select-all/clear work; Explore re-gated at zero";
     });
 
+    await T("T1.6", "Explore stays reachable on DESKTOP with a long muni list (regression)", async () => {
+      // The card is a 2-column grid. A grid row is sized to its CONTENT by default, so with a
+      // single province + its municipality list the right column grew past the card's
+      // max-height — and since the card is `overflow-hidden`, the pinned footer (and with it
+      // "Explore map →") was clipped straight off the bottom. Constraining the row
+      // (`md:grid-rows-[minmax(0,1fr)]`) is what lets the columns scroll INSIDE the card.
+      await p.locator("select").first().selectOption({ label: "Region IV-A (CALABARZON)" });
+      await p.waitForTimeout(700);
+      await p.getByRole("button", { name: "Clear", exact: true }).click();
+      await p.locator("label").filter({ hasText: /^Cavite$/ }).first().locator("input[type=checkbox]").check();
+      await p.waitForTimeout(700); // municipality list appears — the tallest state
+      await p.locator("label").filter({ hasText: /^City of Bacoor$/ }).last().locator("input[type=checkbox]").check();
+      await p.waitForTimeout(500);
+
+      const btn = p.getByRole("button", { name: /Explore map/ });
+      const box = await btn.boundingBox();
+      const vh = await p.evaluate(() => window.innerHeight);
+      assert(box, "Explore button has no box — it was clipped out of the card");
+      assert(box.y + box.height <= vh, `Explore is below the fold (bottom ${Math.round(box.y + box.height)} > viewport ${vh})`);
+      assert(await btn.isVisible(), "Explore not visible");
+      assert(await btn.isEnabled(), "Explore should be enabled with a province + municipality chosen");
+
+      // and the card itself must not have grown past the viewport
+      const card = await p.evaluate(() => {
+        const c = document.querySelector(".max-w-4xl");
+        const r = c.getBoundingClientRect();
+        return { top: Math.round(r.top), bottom: Math.round(r.bottom) };
+      });
+      assert(card.bottom <= vh + 1, `the landing card overflows the viewport (bottom ${card.bottom} > ${vh})`);
+      return `card ${card.top}–${card.bottom} within ${vh}px; Explore visible at y=${Math.round(box.y)} with the municipality list open`;
+    });
+
     await T("T1.5", "Explore gating: needs ≥1 province AND ≥1 sector", async () => {
       await p.getByRole("button", { name: "Select all", exact: true }).click();
       await p.waitForTimeout(300);
@@ -323,7 +355,7 @@ const sliderFor = (p, label) =>
       return sawFade ? "fade-in observed (intermediate opacity captured)" : "reached opacity 1 (fade too fast to sample)";
     });
 
-    await T("T2.4", "Nodes are held back, then fade in with the camera", async () => {
+    await T("T2.4", "Nodes FADE in with the camera (not pop)", async () => {
       const p = await ctx.newPage();
       await p.goto(BASE, { waitUntil: "networkidle", timeout: 60000 });
       await p.waitForSelector("select", { timeout: 30000 });
@@ -333,19 +365,26 @@ const sliderFor = (p, label) =>
       await p.locator("label").filter({ hasText: /^Benguet$/ }).first().locator("input[type=checkbox]").check();
       await p.waitForTimeout(400);
 
-      // The reveal is a multiplier the app wraps around the node-opacity expression:
-      //   icon-opacity = ["*", <opacity expr>, 0 | 1]
-      // 0 while the area is still arriving, 1 once it's in — so nodes can't pop in tile by tile.
-      const revealMul = () => p.evaluate(() => {
-        const e = window.__ugnayMap?.getPaintProperty("nodes-basic", "icon-opacity");
-        return Array.isArray(e) && e[0] === "*" ? e[2] : null;
+      // Sample MapLibre's EVALUATED opacity every frame. Asserting the declared
+      // `icon-opacity-transition` duration proves nothing: MapLibre does **not** interpolate
+      // DATA-DRIVEN paint properties (DataDrivenProperty.interpolate returns `b` outright
+      // unless both sides are constants), so the reveal can be declared at 450ms and still
+      // snap. Only the evaluated value tells you whether it actually faded.
+      await p.evaluate(() => {
+        window.__op = [];
+        const t0 = performance.now();
+        const tick = () => {
+          const m = window.__ugnayMap;
+          const layer = m && m.style && m.style._layers && m.style._layers["nodes-basic"];
+          if (layer) {
+            try { window.__op.push(layer.paint.get("icon-opacity").constantOr(NaN)); } catch { /* ignore */ }
+          }
+          if (performance.now() - t0 < 7000) requestAnimationFrame(tick);
+        };
+        requestAnimationFrame(tick);
       });
 
       await p.getByRole("button", { name: /Explore map/ }).click();
-      await p.waitForTimeout(150);
-      const during = await revealMul();
-      assert(during === 0, `nodes should be held hidden while the area loads (reveal multiplier = ${during})`);
-
       await p.waitForFunction(
         () => {
           const d = window.__ugnayMap?.getSource("nodes")?._data;
@@ -354,18 +393,21 @@ const sliderFor = (p, label) =>
         null,
         { timeout: 60000 }
       );
-      await p.waitForTimeout(3000); // tiles in, camera flown, fade done
-      const after = await revealMul();
-      assert(after === 1, `nodes never revealed (reveal multiplier stuck at ${after})`);
+      await p.waitForTimeout(4000);
 
-      const dur = await p.evaluate(() =>
-        window.__ugnayMap.getPaintProperty("nodes-basic", "icon-opacity-transition")
+      const op = await p.evaluate(() => window.__op);
+      const zeros = op.filter((o) => o === 0).length;
+      const mid = op.filter((o) => !Number.isNaN(o) && o > 0.02 && o < 0.9).length;
+      assert(zeros > 0, "nodes were never held at opacity 0 — they render as tiles stream in");
+      assert(
+        mid >= 4,
+        `no intermediate opacities: the reveal SNAPPED (saw ${mid} values strictly between 0 and 0.9). ` +
+          `The fade must run on a CONSTANT — MapLibre does not interpolate data-driven paint properties.`
       );
-      assert(dur && dur.duration >= 300, `the reveal should FADE, not snap (transition ${JSON.stringify(dur)})`);
       const drawn = await renderedCount(p, "nodes-basic");
       assert(drawn > 0, "no nodes rendered after the reveal");
       await p.close();
-      return `held at 0 while loading → revealed to 1 over ${dur.duration}ms; ${drawn} pins drawn`;
+      return `held at 0, then ${mid} interpolated steps up to full — a real fade; ${drawn} pins`;
     });
   }
 

@@ -127,6 +127,13 @@ export default function App() {
   // A plain counter (not a boolean) so two explores of the same area still fire.
   const [exploreSeq, setExploreSeq] = useState(0);
 
+  // Bumped only to recover from a lost WebGL context (see MapView): remounting MapView
+  // builds a brand-new map with a fresh context. The tiles are already in memory, so this
+  // costs a re-fit, not a re-download — and it beats the alternative, which is a frozen map
+  // that only a manual page reload can fix.
+  const [mapKey, setMapKey] = useState(0);
+  const handleContextLost = useCallback(() => setMapKey((n) => n + 1), []);
+
   const fadeTimer = useRef(null);
   // First landing appears instantly (no fade — the fade-in revealed the empty map behind
   // it, which read as a flash). Only "Change area" re-entry fades in over the live map.
@@ -390,6 +397,7 @@ export default function App() {
       >
           <ErrorBoundary>
             <MapView
+              key={mapKey}
               nodes={nodes}
               places={places}
               accessIndex={accessIndex}
@@ -413,6 +421,7 @@ export default function App() {
               isMobile={isMobile}
               loading={anyLoading}
               exploreSeq={exploreSeq}
+              onContextLost={handleContextLost}
             />
           </ErrorBoundary>
 

@@ -33,7 +33,7 @@ It needs a Chromium binary. If Playwright's browser cache is present, point at i
 container, launch with `--no-sandbox --use-gl=swiftshader --enable-unsafe-swiftshader` so
 WebGL renders in software — MapLibre then draws for real and map assertions are meaningful.
 
-### Four gotchas that will silently break your tests
+### Five gotchas that will silently break your tests
 Each of these produced a *false* result before being fixed — they cost real debugging time:
 
 1. **Map pixels ≠ page pixels.** `map.project()` is relative to the **canvas**;
@@ -52,6 +52,15 @@ Each of these produced a *false* result before being fixed — they cost real de
    case-insensitive regex.
 4. **The same name can be both a province and a municipality** (e.g. *Quezon City* in NCR).
    Province checkboxes render before municipality ones — disambiguate with `.first()` / `.last()`.
+
+5. **MapLibre does not interpolate DATA-DRIVEN paint properties.** `DataDrivenProperty.interpolate(a, b, t)`
+   returns `b` unless *both* sides are constants. So a paint property built from an expression
+   (anything reading `["get", …]`) **cannot fade**, whatever `*-transition` duration you set —
+   and a test that asserts the declared duration will pass while the thing visibly *pops*. To
+   test a fade, sample MapLibre's **evaluated** value per frame
+   (`map.style._layers[id].paint.get(prop).constantOr(NaN)`) and require real intermediate
+   values. (This is why the node reveal has to fade on a constant and only then hand back to
+   the expression.)
 
 Also: **assert on state, not on text that is always present.** The detail drawer is always
 mounted (it slides in on a transform), so its "INSTITUTION" heading is in the DOM even with

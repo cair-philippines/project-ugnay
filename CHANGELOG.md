@@ -7,6 +7,47 @@ details: `documentation/deployment.md`.
 
 ---
 
+## 2026-07-13 (later) — the reveal actually fades; landing overflow; stale popup
+
+### Fixed
+- **The node reveal SNAPPED instead of fading.** The cause is a MapLibre rule that is easy to
+  miss: **it does not interpolate DATA-DRIVEN paint properties.** `DataDrivenProperty.interpolate(a, b, t)`
+  returns `b` outright unless *both* sides are constants. Our `icon-opacity` is an expression
+  (it reads `dim` and `node_id`), so **any** transition on it was ignored and the change
+  landed instantly — no duration would ever have fixed it. The fade now runs on a **constant**
+  (`0 → 0.92`, which MapLibre does interpolate) and hands back to the expression once it
+  lands, where the expression already evaluates to the same value so the hand-over is invisible.
+  - The old test asserted the *declared* `icon-opacity-transition` duration — which was
+    correct while the thing visibly popped. **T2.4** now samples MapLibre's **evaluated**
+    opacity every frame and fails unless it sees real intermediate values.
+- **"Explore map →" was unreachable on DESKTOP** once a province + municipality list was open.
+  The landing card is a 2-column grid, and **a grid row is sized to its content**, so the
+  right column grew past the card's `max-height`; because the card is `overflow-hidden`, the
+  pinned footer was clipped straight off the bottom. `md:grid-rows-[minmax(0,1fr)]` constrains
+  the row so the columns scroll *inside* the card. Guarded by **T1.6**.
+- **A stale hover popup flashed in the top-left corner.** `hoverNode` was never cleared on an
+  area change, so the popup for a node from the *previous* region kept rendering — at a
+  lng/lat now far outside the view, which MapLibre transforms to a large negative offset. It
+  is now cleared on every Explore, and the popup additionally refuses to render for a node
+  that has left the current index or has a non-finite coordinate (an invalid `LngLat` makes
+  MapLibre throw, and a throw inside its update path can take the render loop down with it).
+
+### Added
+- **WebGL context-loss recovery.** A lost GL context freezes the canvas on its last frame:
+  the map stops responding to drags and to the zoom buttons and any popup sticks at the
+  origin, while the React chrome around it keeps working — and only a reload fixes it, because
+  MapLibre does not recover on its own. The app now asks the browser to restore the context
+  and, failing that, remounts the map with a fresh one (the tiles are already in memory, so
+  this costs a re-fit, not a re-download).
+
+### Changed
+- **Preamble copy**: dropped "side by side for the first time" (it read as a boast) in favour
+  of what the combined view *makes possible* — "Seeing DepEd, CHED and TESDA together turns
+  three separate inventories into one question you can act on: where does a learner run out
+  of options?"
+
+---
+
 ## 2026-07-13 — mojibake repair, landing preamble, motion
 
 ### Fixed

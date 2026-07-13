@@ -65,8 +65,9 @@ function Preamble({ compact = false }) {
 
       {!compact && (
         <p className="mt-3 text-[13px] leading-relaxed text-blue-100/70">
-          Every school, university and training center in the country on one map — the three
-          agencies that run Philippine education, side by side for the first time.
+          Every school, university and training center in the country on one map. Seeing DepEd,
+          CHED and TESDA together turns three separate inventories into one question you can
+          act on: <span className="text-blue-50">where does a learner run out of options?</span>
         </p>
       )}
 
@@ -200,9 +201,14 @@ export default function SetupView({
           under the right column, so the primary action is never something you have to go
           hunting for. */}
       <div
+        // `md:grid-rows-[minmax(0,1fr)]` is load-bearing. A grid row is sized to its CONTENT
+        // by default, so with a long province + municipality list the right column grew past
+        // the card's max-height — and since the card is `overflow-hidden`, the pinned footer
+        // (and with it "Explore map →") was simply clipped away off the bottom of the card.
+        // Constraining the row to the card's height is what lets the columns scroll INSIDE it.
         className={`w-full max-w-4xl bg-white rounded-2xl shadow-2xl border border-gray-100 m-4 max-h-[92dvh]
-          flex flex-col md:grid md:grid-cols-[minmax(0,1fr)_minmax(0,1.05fr)] overflow-hidden
-          transition-all duration-500 ease-out ${
+          flex flex-col md:grid md:grid-cols-[minmax(0,1fr)_minmax(0,1.05fr)] md:grid-rows-[minmax(0,1fr)]
+          overflow-hidden transition-all duration-500 ease-out ${
             shown ? "opacity-100 translate-y-0 scale-100" : "opacity-0 translate-y-3 scale-[0.98]"
           }`}
       >
@@ -211,12 +217,12 @@ export default function SetupView({
           the other is out of the a11y tree too) — the mobile copy has to live inside the
           scroll container with the controls, and the desktop copy has to live in its own
           grid column, and those are genuinely different places in the tree. */}
-      <div className="hidden md:block md:overflow-y-auto overscroll-contain">
+      <div className="hidden md:block md:min-h-0 md:overflow-y-auto overscroll-contain">
         <Preamble />
       </div>
 
       {/* RIGHT (desktop) / EVERYTHING (mobile) — the choices. */}
-      <div className="flex flex-col min-h-0 flex-1">
+      <div className="flex flex-col min-h-0 flex-1 overflow-hidden">
       <div className="overflow-y-auto overscroll-contain flex-1">
       {/* MOBILE: the preamble scrolls WITH the controls, as one continuous read. A separate
           scrolling box for it would be a nested scroll trap, and stacking it as a fixed row
