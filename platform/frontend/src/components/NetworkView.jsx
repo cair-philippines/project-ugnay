@@ -5,6 +5,7 @@ import {
   progressionEdges,
   chainStatus,
   statusCounts,
+  tilesArePreS7,
   PATHWAYS,
   STATUS_STYLE,
   STATUS_ORDER,
@@ -88,6 +89,9 @@ export default function NetworkView({
     () => statusCounts(nodes, pathway, thresholdKm, nearestIndex),
     [nodes, pathway, thresholdKm, nearestIndex]
   );
+  // Tiles older than S7 carry no verdict at all. Say so — loudly, in the view — instead of
+  // rendering a graph that looks finished and means nothing.
+  const stale = useMemo(() => tilesArePreS7(nodes), [nodes]);
 
   const indexOf = useMemo(
     () => new Map(nodes.map((n, i) => [n.node_id, i])),
@@ -407,7 +411,7 @@ export default function NetworkView({
         <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-gray-400 mb-1.5">
           {PATHWAYS[pathway].label} pathway · {thresholdKm} km
         </div>
-        {["cut", "deadend", "complete"].map((s) => (
+        {(stale ? ["unknown"] : ["cut", "deadend", "complete"]).map((s) => (
           <div key={s} className="flex items-center gap-2 text-[11px] py-0.5">
             <span
               className="w-2.5 h-2.5 rounded-full shrink-0"
@@ -417,12 +421,29 @@ export default function NetworkView({
             <span className="tabular-nums font-medium text-gray-800">{counts[s]}</span>
           </div>
         ))}
-        {counts.na > 0 && (
+        {!stale && counts.na > 0 && (
           <div className="mt-1 pt-1 border-t border-gray-100 text-[10px] text-gray-400">
             {counts.na} not on this pathway
           </div>
         )}
       </div>
+
+      {stale && (
+        <div className="absolute top-14 left-1/2 -translate-x-1/2 z-30 max-w-md bg-violet-50 border border-violet-300 text-violet-900 rounded-lg px-4 py-3 shadow-lg">
+          <div className="text-xs font-semibold uppercase tracking-wide mb-1">
+            No pathway verdicts in these tiles
+          </div>
+          <p className="text-[11px] leading-relaxed">
+            The tiles loaded here were built before the progression stage (S7), so they carry
+            no chain verdict. The structure below is real, but every institution is showing as
+            “not on this pathway” because the answer simply isn’t in the data.{" "}
+            <span className="font-medium">
+              Re-run <code>scripts/s7_progression_chains.py</code> and{" "}
+              <code>scripts/s6_tile_slicer.py</code>, then re-upload the tiles.
+            </span>
+          </p>
+        </div>
+      )}
 
       {settling && (
         <div className="absolute inset-x-0 top-0 h-0.5 bg-slate-200 z-20">

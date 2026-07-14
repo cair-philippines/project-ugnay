@@ -139,6 +139,13 @@ function hasNextStep(node, pathway, thresholdKm, nearestIndex) {
 //   na        — not on this pathway (an assessment centre has no academic verdict; an HEI
 //               has no tech-voc one). N/A is NOT a failure and must never be painted as one.
 export function chainStatus(node, pathway, thresholdKm, nearestIndex) {
+  // A tile without the S7 fields is a STALE DATA CONTRACT, not an institution that happens
+  // to sit off the pathway — and the two must never be confused. When the network view first
+  // shipped, the frontend went out ahead of the tiles: `academic_applies` was `undefined`,
+  // which is falsy, so all 3,825 institutions in view were quietly reported "not on this
+  // pathway" and the readout showed 0 · 0 · 0. It looked like a finished graph. It was a
+  // graph with no data in it. Absence of the field is now a loud, separate state.
+  if (node[`${pathway}_applies`] === undefined) return "unknown";
   if (!node[`${pathway}_applies`]) return "na";
   // Plotted off the road network (usually a broken coordinate — several sit in open sea),
   // so its routed distances are meaningless and it would always read as a gap. Same
@@ -165,12 +172,19 @@ export const STATUS_STYLE = {
   deadend: { fill: "#F59E0B", label: "Dead-end chain", r: 4, alpha: 1 },
   cut: { fill: "#DC2626", label: "Cut", r: 4.5, alpha: 1 },
   na: { fill: "#E2E8F0", label: "Not on this pathway", r: 2, alpha: 0.35 },
+  unknown: { fill: "#7C3AED", label: "No verdict in this tile", r: 3, alpha: 0.6 },
 };
 
-export const STATUS_ORDER = ["na", "complete", "deadend", "cut"]; // paint order: worst on top
+export const STATUS_ORDER = ["na", "complete", "deadend", "cut", "unknown"]; // worst on top
 
 export function statusCounts(nodes, pathway, thresholdKm, nearestIndex) {
-  const counts = { complete: 0, deadend: 0, cut: 0, na: 0 };
+  const counts = { complete: 0, deadend: 0, cut: 0, na: 0, unknown: 0 };
   for (const n of nodes) counts[chainStatus(n, pathway, thresholdKm, nearestIndex)] += 1;
   return counts;
+}
+
+// Are the tiles we loaded old enough to predate S7? If so the whole view is meaningless and
+// must SAY so, rather than drawing an authoritative-looking graph of nothing.
+export function tilesArePreS7(nodes) {
+  return nodes.length > 0 && nodes.every((n) => n.academic_applies === undefined);
 }
