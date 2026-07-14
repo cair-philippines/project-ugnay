@@ -127,6 +127,8 @@ export default function DetailDrawer({
   nearestIndex,
   onClose,
   isMobile = false,
+  view = "map",
+  onShowOnMap,
 }) {
   const hasStats = stats && node;
 
@@ -173,6 +175,34 @@ export default function DetailDrawer({
 
         <div className="px-3 py-3 overflow-y-auto">
           {node && <InstitutionCard node={node} colors={colors} place={place} />}
+
+          {/* The hand-off back to geography.
+              The network view answers "does this pathway go anywhere"; it cannot answer
+              "where is this, and what is around it" — position in a force layout is
+              structure, not place. So the moment a user has found an institution worth
+              caring about, the next question is almost always a map question, and until now
+              the only answer was to switch views by hand and then hunt for the node they had
+              already found. (Selecting in the graph did quietly select on the map, but
+              nothing SAID so, and an invisible effect is not a feature.)
+              It carries help text because it moves you somewhere: a button that changes the
+              whole view without warning is a button people learn not to press. */}
+          {node && view === "network" && onShowOnMap && (
+            <div className="mt-3">
+              <button
+                onClick={onShowOnMap}
+                data-testid="show-on-map"
+                className="w-full flex items-center justify-center gap-1.5 rounded-md bg-slate-800 px-3 py-2 text-xs font-medium text-white transition-colors hover:bg-slate-900"
+              >
+                Show on the map
+                <span aria-hidden="true">→</span>
+              </button>
+              <p className="mt-1 text-[10px] leading-snug text-gray-400">
+                Switches to the map and zooms to this institution. It stays selected, so its
+                accessibility edges are already drawn when you land. “Network” in the header
+                brings you back.
+              </p>
+            </div>
+          )}
 
           {hasStats && (
             <>

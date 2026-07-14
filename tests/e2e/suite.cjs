@@ -1224,6 +1224,264 @@ const sliderFor = (p, label) =>
     await mctx.close();
   }
 
+  // ===== T15 — Network view (progression as a graph) =====
+  //
+  // Every assertion here is on the VIEW ACTUALLY CHANGING — canvas pixels, or the camera the
+  // canvas is drawn through. Not on an event firing. Two of this feature's worst bugs were
+  // gestures that dispatched perfectly and did nothing, and a graph that rendered confidently
+  // with no data in it; both would sail through a test that only checked that something
+  // happened. So: sample the canvas, read the camera, and count the ink.
+  log("\nT15 — Network view");
+  {
+    const nctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+    const n = await nctx.newPage();
+    await enterMap(n, { region: "Region I (Ilocos Region)", province: "Ilocos Norte" });
+
+    const CANVAS = '[data-testid="network-canvas"]';
+    // Colour thresholds are tuned to the ACTUAL fills — DepEd-public #3B82F6 and cut-red
+    // #DC2626 — not to "bluish"/"reddish". The edge grey (100,116,139) at low alpha returns
+    // from getImageData as ~(100,114,141) after the premultiply round-trip, and a loose test
+    // counted every antialiased EDGE as a coloured node.
+    const sampleCanvas = (pg) =>
+      pg.evaluate(() => {
+        const c = document.querySelector('[data-testid="network-canvas"]');
+        const { data } = c.getContext("2d").getImageData(0, 0, c.width, c.height);
+        let hash = 0, red = 0, blue = 0, ink = 0;
+        for (let i = 0; i < data.length; i += 4) {
+          const r = data[i], g = data[i + 1], b = data[i + 2];
+          if (data[i + 3] < 8) continue;
+          ink += 1;
+          hash = (hash * 31 + r + g * 3 + b * 7 + i) >>> 0;
+          if (r > 150 && r > g + 80 && r > b + 80) red += 1;
+          if (b > 200 && r < 130 && b > g + 70) blue += 1;
+        }
+        return { hash, red, blue, ink };
+      });
+    const netZoom = (pg) => pg.evaluate(() => window.__ugnayNetView?.k ?? null);
+    const netReadout = (pg) =>
+      pg.evaluate(() => {
+        const el = document.querySelector('[data-testid="network-readout"]');
+        return el ? el.innerText.replace(/\s+/g, " ").trim() : null;
+      });
+
+    await T("T15.1", "Map → Network: the graph SEEDS from the map, then settles", async () => {
+      await n.getByRole("button", { name: "Network", exact: true }).click();
+      await n.waitForSelector(CANVAS, { timeout: 15000 });
+      await n.waitForTimeout(120);
+      // Frame zero is the map: the force layout is seeded from the live projection, so there
+      // must already be ink on the canvas before a single tick has run.
+      const first = await sampleCanvas(n);
+      assert(first.ink > 500, `frame 0 is blank (ink=${first.ink}) — the seed did not draw`);
+      await n.waitForTimeout(400);
+      const mid = await sampleCanvas(n);
+      assert(mid.hash !== first.hash, "the graph never moved — the simulation did not run");
+      await n.waitForFunction(
+        () => !document.querySelector('[data-testid="network-canvas"]')
+          ?.parentElement?.querySelector(".bg-slate-500"),
+        null,
+        { timeout: 60000 }
+      );
+      return "seeded from the map, settled";
+    });
+
+    await T("T15.2", "Opens BLAND: verdicts real, nothing lit, nothing coloured", async () => {
+      const r = await netReadout(n);
+      const s = await sampleCanvas(n);
+      assert(r && /\d/.test(r), `readout has no numbers: ${r}`);
+      // The graph-of-nothing regression: a frontend ahead of its tiles reported every school
+      // as "not on this pathway" and showed 0 · 0 · 0, and it looked finished.
+      assert(!/\bCut 0\b.*\bDead-end chain 0\b/.test(r), `all-zero verdicts — stale tiles? ${r}`);
+      assert(s.red / s.ink < 0.02, `${((s.red / s.ink) * 100).toFixed(1)}% red ink with no verdict lit`);
+      assert(s.blue / s.ink < 0.02, `${((s.blue / s.ink) * 100).toFixed(1)}% sector colour with no sector on`);
+      return r.slice(0, 64);
+    });
+
+    await T("T15.3", "Verdict is a HIGHLIGHT: lighting Cut lights it, and dims the rest", async () => {
+      const before = await sampleCanvas(n);
+      await n.locator('[data-testid="network-readout"] button', { hasText: "Cut" }).first().click();
+      await n.waitForTimeout(400);
+      const after = await sampleCanvas(n);
+      assert(after.red > 200 && after.red > before.red * 3,
+        `red ink barely moved: ${before.red} → ${after.red}`);
+      // The dimmed field must SURVIVE. "Highlight" means the rest recede, not vanish — the
+      // claim being made is that the cut nodes sit at the rim of a structure, and a rim with
+      // nothing behind it is not a rim.
+      assert(after.ink > before.ink * 0.25,
+        `the un-lit field was erased, not dimmed (ink ${before.ink} → ${after.ink})`);
+      return `red px ${before.red} → ${after.red}; field retained`;
+    });
+
+    await T("T15.4", "Sector is a FILL, in the map's own colours", async () => {
+      const before = await sampleCanvas(n);
+      await n.getByRole("button", { name: /Basic Education/ }).first().click();
+      await n.waitForTimeout(400);
+      const after = await sampleCanvas(n);
+      assert(after.blue > 200 && after.blue > before.blue * 3,
+        `sector colour never appeared: ${before.blue} → ${after.blue}`);
+      await n.locator('[data-testid="network-readout"] button', { hasText: "Cut" }).first().click();
+      await n.getByRole("button", { name: /Basic Education/ }).first().click();
+      await n.waitForTimeout(300);
+      return `blue px ${before.blue} → ${after.blue}`;
+    });
+
+    await T("T15.5", "TRACKPAD PINCH (ctrl+wheel) zooms IN — and the browser never sees it", async () => {
+      const pinch = async (dy, times) => {
+        for (let i = 0; i < times; i += 1) {
+          await n.evaluate((d) => {
+            const c = document.querySelector('[data-testid="network-canvas"]');
+            const r = c.getBoundingClientRect();
+            c.dispatchEvent(new WheelEvent("wheel", {
+              deltaY: d, ctrlKey: true, bubbles: true, cancelable: true,
+              clientX: r.left + r.width / 2, clientY: r.top + r.height / 2,
+            }));
+          }, dy);
+          await n.waitForTimeout(30);
+        }
+        await n.waitForTimeout(200);
+      };
+      // React registers `wheel` as a PASSIVE listener, so preventDefault() inside an onWheel
+      // prop is silently a no-op — and a trackpad pinch arrives as ctrl+wheel. Undefaulted,
+      // the browser page-zooms, which resizes the layout, which restarts the simulation. The
+      // listener must be bound by hand with { passive: false }.
+      const prevented = await n.evaluate(() => {
+        const c = document.querySelector('[data-testid="network-canvas"]');
+        const r = c.getBoundingClientRect();
+        const ev = new WheelEvent("wheel", {
+          deltaY: -8, ctrlKey: true, bubbles: true, cancelable: true,
+          clientX: r.left + r.width / 2, clientY: r.top + r.height / 2,
+        });
+        c.dispatchEvent(ev);
+        return ev.defaultPrevented;
+      });
+      assert(prevented, "ctrl+wheel was NOT preventDefault'd — the browser will page-zoom");
+
+      // Direction, from the CAMERA. A pixel count cannot tell zoom-in from zoom-out: zoom far
+      // enough in and the ink falls again as everything leaves the frame. That is precisely how
+      // a pinch that zoomed the wrong way could pass.
+      const k0 = await netZoom(n);
+      assert(k0 != null, "window.__ugnayNetView missing — no camera to assert on");
+      await pinch(-8, 10);
+      const k1 = await netZoom(n);
+      assert(k1 > k0 * 1.15, `pinch-IN did not zoom in: k ${k0.toFixed(3)} → ${k1.toFixed(3)}`);
+      await pinch(8, 10);
+      const k2 = await netZoom(n);
+      assert(k2 < k1 * 0.87, `pinch-OUT did not zoom out: k ${k1.toFixed(3)} → ${k2.toFixed(3)}`);
+      // One hostile delta must not fling the camera inside a node with no way back.
+      await pinch(-4000, 1);
+      const k3 = await netZoom(n);
+      assert(k3 / k2 <= 1.3, `one event moved zoom ${(k3 / k2).toFixed(1)}× — the step is uncapped`);
+      await n.getByRole("button", { name: "Fit graph to view" }).click();
+      await n.waitForTimeout(400);
+      return `in ${k0.toFixed(2)}→${k1.toFixed(2)}, out →${k2.toFixed(2)}, step capped at ${(k3 / k2).toFixed(2)}×`;
+    });
+
+    await T("T15.6", "The filter panel is CLICKABLE over the network canvas", async () => {
+      // The network is a full-bleed `absolute inset-0 z-10` overlay that comes LATER in the DOM
+      // than the panel. At an equal z-index it wins — and its canvas silently covered the whole
+      // panel, so the threshold slider (which drives every edge AND every verdict) was dead
+      // while still looking perfectly normal. Playwright's hit-target check is what caught it.
+      await n.locator('input[type=range]').first().fill("5");
+      await n.waitForTimeout(1200);
+      const r = await netReadout(n);
+      assert(/5 KM/i.test(r), `the threshold never reached the graph: ${r}`);
+      await n.locator('input[type=range]').first().fill("3");
+      await n.waitForTimeout(1200);
+      return "slider reaches the canvas";
+    });
+
+    await T("T15.7", "'Show on the map' hands off to geography and flies there", async () => {
+      let hit = false;
+      for (const [x, y] of [[720, 450], [700, 430], [740, 470], [680, 470], [760, 430]]) {
+        await n.mouse.click(x, y);
+        await n.waitForTimeout(350);
+        if (await n.locator('[data-testid="show-on-map"]').isVisible().catch(() => false)) {
+          hit = true;
+          break;
+        }
+      }
+      assert(hit, "no node was selectable in the middle of the graph");
+      const z0 = await n.evaluate(() => window.__ugnayMap.getZoom());
+      await n.locator('[data-testid="show-on-map"]').click();
+      await n.waitForTimeout(1800);
+      assert((await n.locator(CANVAS).count()) === 0, "the network canvas is still mounted");
+      const z1 = await n.evaluate(() => window.__ugnayMap.getZoom());
+      assert(z1 >= 13.9, `map did not zoom to the institution (${z0.toFixed(1)} → ${z1.toFixed(1)})`);
+      return `zoom ${z0.toFixed(1)} → ${z1.toFixed(1)}`;
+    });
+
+    await T("T15.8", "Map hover popup is MOVED, never rebuilt (no top-left flash)", async () => {
+      // A MapLibre popup added on hover is NOT positioned in the frame it is added: MapLibre
+      // defers popup DOM writes onto its render-task queue, so for its first frames the element
+      // sits at the container's origin — the TOP-LEFT CORNER — and only then jumps to the node.
+      // Crossing bare map between two schools tore the popup down and rebuilt it, so the card
+      // strobed in the corner. It is now mounted once, at load, and only ever moved.
+      await n.getByRole("button", { name: "Re-center on this area" }).click();
+      await n.waitForTimeout(1400);
+      await n.evaluate(() => {
+        window.__popupAdds = 0;
+        window.__popupCorner = 0;
+        window.__popupMaxOpacity = 0;
+        window.__popupPre = !!document.querySelector(".maplibregl-popup");
+        new MutationObserver((muts) => {
+          for (const m of muts) {
+            for (const node of m.addedNodes) {
+              if (node.classList?.contains("maplibregl-popup")) window.__popupAdds += 1;
+            }
+          }
+        }).observe(document.querySelector(".maplibregl-map"), { childList: true, subtree: true });
+        const tick = () => {
+          const el = document.querySelector(".maplibregl-popup");
+          if (el) {
+            const cs = getComputedStyle(el);
+            const r = el.getBoundingClientRect();
+            window.__popupMaxOpacity = Math.max(window.__popupMaxOpacity, parseFloat(cs.opacity));
+            if (cs.opacity !== "0" && r.width > 0 && r.left < 40 && r.top < 90) {
+              window.__popupCorner += 1;
+            }
+          }
+          requestAnimationFrame(tick);
+        };
+        requestAnimationFrame(tick);
+      });
+
+      // Sweep the ten institutions nearest the middle. Staying away from the top-left is what
+      // makes the corner check mean something: a popup for a node NEAR that corner sits near it
+      // quite legitimately, and would trip a naive corner test on a perfectly healthy popup.
+      const pts = await n.evaluate(() => {
+        const m = window.__ugnayMap;
+        const on = [];
+        for (const f of m.getSource("nodes")._data.features) {
+          const q = m.project(f.geometry.coordinates);
+          if (q.x > 250 && q.y > 250 && q.x < 1120 && q.y < 830) {
+            on.push({ x: Math.round(q.x), y: Math.round(q.y), d: (q.x - 570) ** 2 + (q.y - 500) ** 2 });
+          }
+        }
+        on.sort((a, b) => a.d - b.d);
+        return on.slice(0, 10).map((q) => [q.x, q.y]);
+      });
+      assert(pts.length >= 4, `only ${pts.length} institutions on screen to hover`);
+      for (const [x, y] of pts) {
+        await n.mouse.move(x, y, { steps: 6 });
+        await n.waitForTimeout(160);
+      }
+
+      const s = await n.evaluate(() => ({
+        adds: window.__popupAdds, corner: window.__popupCorner,
+        pre: window.__popupPre, maxOp: window.__popupMaxOpacity,
+      }));
+      assert(s.pre, "no popup was pre-mounted — it is still being created on hover");
+      // Without this the test is happiest when the card never appears at all, which is not a
+      // test, it is a way of passing.
+      assert(s.maxOp > 0.5, `the hover card never became visible (max opacity ${s.maxOp})`);
+      assert(s.corner === 0, `popup rendered in the top-left corner on ${s.corner} frames`);
+      assert(s.adds === 0, `popup was REBUILT ${s.adds}× across ${pts.length} hovers (must be 0)`);
+      return `${pts.length} hovers · 0 rebuilds · 0 corner frames`;
+    });
+
+    await n.close();
+    await nctx.close();
+  }
+
   // ===== summary =====
   log("\n" + "=".repeat(72));
   const pass = results.filter((r) => r.ok).length;

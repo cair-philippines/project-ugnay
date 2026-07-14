@@ -7,7 +7,73 @@ details: `documentation/deployment.md`.
 
 ---
 
-## 2026-07-13 (latest) — progression returns, as a network; and a graph of nothing
+## 2026-07-14 (latest) — the network stops shouting; the map stops flashing
+
+Round 12. The network view shipped legible-in-principle and unreadable-in-practice, and three
+of its defects were the kind that **look like successes**.
+
+### The grammar was wrong, and it has been replaced
+Fill carried the *verdict* while shape and a hairline ring carried the *sector*, so every mark
+encoded two orthogonal things at once — and all three verdicts were painted at all times,
+before the user had asked anything. A settled province read as noise.
+
+Now: **fill = the sector** (the map's own colours, so the two views agree), **highlight = the
+verdict**, and **nothing is on by default**. The canvas opens deliberately bland — grey nodes,
+pale edges. That is not an empty state: the clusters and the loose specks *are already the
+finding*, and the filters tell you **who** they are.
+
+- Lighting a verdict **dims the rest to 28%**, it does not delete them. The claim is that the
+  cut ones sit at the **rim** of the structure, and you cannot see a rim with nothing behind
+  it. (A first pass dimmed the field to 9–14% and the strongest thing this view says collapsed
+  into red dots floating in white.)
+- Sector filters **colour**, they do not hide. The network always graphs the whole loaded
+  area — a learner's pathway runs through a TESDA centre whether or not you have TESDA
+  switched on. The map's sector toggles are therefore *hidden* here rather than left inert.
+- The **readout is the filter**: the counts and the switch that lights them are one control.
+
+### The map now unfolds into the graph
+The force layout is **seeded from the map's live projection**, so frame zero of the network is
+pixel-for-pixel the map you were just looking at; the backdrop fades up while the forces pull
+it apart. Leaving folds it back down onto the map's own pins. The seed is not decoration — it
+is a much better initial condition than d3's spiral, so it settles in fewer ticks.
+
+### Three bugs that made a broken thing look fine
+1. **The settle was unwatchable, and it was self-inflicted.** The draw loop listed `progress`
+   in its dependency array, so every worker tick (60/s) tore down the rAF loop and re-assigned
+   `canvas.width` — **reallocating the canvas backing store sixty times a second**, underneath
+   the very animation it was meant to show. Separately, the worker ran the whole simulation in
+   one blocking loop and dumped ~115 messages on the main thread in a burst. It now ticks for a
+   frame's budget and yields.
+2. **Trackpad pinch could only zoom out.** A pinch arrives as `wheel` + `ctrlKey`, and React
+   registers `wheel` as a **passive** listener — so `preventDefault()` in an `onWheel` prop is
+   silently a no-op. The browser page-zoomed on top of us, which resized the layout, which
+   restarted the simulation. Bound by hand now with `{ passive: false }`, and the per-event step
+   is capped at 1.25× (devices disagree wildly about what `deltaY` means).
+3. **The filter panel was unclickable over the graph.** The network is a full-bleed
+   `absolute inset-0 z-10` overlay that comes *later in the DOM* than the `z-10` FilterPanel, so
+   its canvas was swallowing every click — **the threshold slider, which drives every edge and
+   every verdict, was dead** while looking perfectly normal. Caught by Playwright's hit-target
+   check, not by looking at it.
+
+### The map's hover card stopped strobing in the corner
+MapLibre defers popup DOM writes onto its render-task queue, so a popup **created** on hover
+spends its first frames *unpositioned at the container's origin* — the top-left corner. Sliding
+between two schools crosses bare map, which unmounted and rebuilt it every time. Delaying the
+reveal by a frame did **not** fix it (measured: still `transform: matrix(1,0,0,1,0,3)` six
+frames in — any time-based reveal is racing a queue we don't control). It is now **mounted once,
+at load, and only ever moved**. There is no frame in which it can be both in the corner and
+visible, because there is no frame in which it is created and visible.
+
+### Also
+- **"Show on the map"** in the detail drawer — an explicit hand-off from a node in the graph to
+  its place on the ground, with help text. Selecting a node always *did* select it on the map,
+  but nothing said so, and an invisible effect is not a feature.
+- **T15 (8 scenarios)** closes the coverage gap: the network view had **zero** regression tests
+  and was verified only with throwaway scripts. Suite is now **53/53**.
+
+---
+
+## 2026-07-13 — progression returns, as a network; and a graph of nothing
 
 The map asks a **one-hop** question — *is there a next level nearby?* — and that question
 **flatters reality**. Adams Central Elementary has a junior high **0.76 km** away, so its gap

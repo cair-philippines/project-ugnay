@@ -158,25 +158,38 @@ export function chainStatus(node, pathway, thresholdKm, nearestIndex) {
   return hasNextStep(node, pathway, thresholdKm, nearestIndex) ? "deadend" : "cut";
 }
 
-// Severity fill. Complete recedes; broken advances — the eye should land on the failures,
-// because they are the point of the view.
+// The verdict is a HIGHLIGHT, not a fill.
 //
-// Shares the map's red/amber severity ramp deliberately: in BOTH views red means "the next
-// step is missing" and amber means "the next step is there, but it doesn't get you out".
-// The exact wording differs per view, so each legend spells its own out.
-// Complete recedes but must not VANISH: the healthy core is the baseline the broken ones
-// are read against, and a first pass that faded it to near-nothing turned the connected
-// cluster into a grey smudge — you could see that something was there, but not that it was
-// the thing working. It sits back; it does not disappear.
+// It used to be the fill, and that was a mistake: fill was carrying the verdict while shape
+// and a hairline ring carried the sector, so every mark encoded two orthogonal things at
+// once and the graph read as noise. Worse, it forced a verdict on the user before they had
+// asked a question — all three states painted at all times, competing.
+//
+// Now: fill is the SECTOR (the same colours as the map, so the two views agree), and the
+// verdict is something you TURN ON. Toggle "Cut" and the cut nodes light up against a dimmed
+// field; the rest stay as context, because seeing that the cut ones sit at the RIM of the
+// structure is the entire argument. Nothing is highlighted by default — the canvas opens
+// deliberately bland, and the filters are how you interrogate it.
 export const STATUS_STYLE = {
-  complete: { fill: "#94A3B8", label: "Complete", r: 3, alpha: 0.7 },
-  deadend: { fill: "#F59E0B", label: "Dead-end chain", r: 4, alpha: 1 },
-  cut: { fill: "#DC2626", label: "Cut", r: 4.5, alpha: 1 },
-  na: { fill: "#E2E8F0", label: "Not on this pathway", r: 2, alpha: 0.35 },
-  unknown: { fill: "#7C3AED", label: "No verdict in this tile", r: 3, alpha: 0.6 },
+  cut: { color: "#DC2626", label: "Cut" },
+  deadend: { color: "#F59E0B", label: "Dead-end chain" },
+  complete: { color: "#059669", label: "Complete" },
+  na: { color: "#CBD5E1", label: "Not on this pathway" },
+  unknown: { color: "#7C3AED", label: "No verdict in this tile" },
 };
 
-export const STATUS_ORDER = ["na", "complete", "deadend", "cut", "unknown"]; // worst on top
+// The three the user can toggle. `na` is not a failure and `unknown` is a build error — both
+// are reported in the readout, neither is something you ask the graph to show you.
+export const VERDICTS = ["cut", "deadend", "complete"];
+
+// Painted worst-last, so a lit red node is never buried under the healthy mass around it.
+export const STATUS_ORDER = ["na", "complete", "deadend", "cut", "unknown"];
+
+// The bland baseline: what every node looks like before the user has asked anything. Bland is
+// not the same as invisible — the shape of the graph (the clusters, and the specks with
+// nothing attached to them) IS the finding, and it has to be readable before a single filter
+// is touched. A first pass at #CBD5E1 made the whole graph a pale smudge.
+export const NEUTRAL_FILL = "#94A3B8";
 
 export function statusCounts(nodes, pathway, thresholdKm, nearestIndex) {
   const counts = { complete: 0, deadend: 0, cut: 0, na: 0, unknown: 0 };

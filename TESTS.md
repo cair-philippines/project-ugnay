@@ -671,6 +671,25 @@ Run after every deploy (quick pass):
 
 ---
 
+## T15 — Network view (frontend_design §5B)
+
+The network view is the one feature here whose bugs **look like successes**. A gesture that dispatches perfectly and does nothing; a graph that renders confidently with no data in it; a panel that paints on top of a canvas that is actually swallowing its clicks. Every one of those sails through a test that checks "did something happen". So every assertion in T15 is on **the view actually changing** — canvas pixels, or the camera the canvas is drawn through — never on an event firing.
+
+| ID | Asserts | Why it exists |
+|---|---|---|
+| **T15.1** | Frame 0 of the network already has ink (the layout is **seeded from the map's projection**), the graph then *moves*, then settles | A blank first frame means the seed didn't draw; a still graph means the worker never ran |
+| **T15.2** | Opens **bland**: verdict counts are real, <2% red ink, <2% sector colour | The "graph of nothing" regression — a frontend ahead of its tiles reported every school as *not on this pathway*, showed `0 · 0 · 0`, and **looked finished** |
+| **T15.3** | Lighting *Cut* raises red ink ≥3×, **and the un-lit field survives** (ink stays >25%) | "Highlight" means the rest recede, not vanish. The claim is that cut nodes sit at the **rim** of a structure; a rim with nothing behind it is not a rim |
+| **T15.4** | Colouring a sector paints it in the **map's own fill** | The two views must not quietly contradict each other |
+| **T15.5** | ctrl+wheel is `preventDefault`ed; pinch-**in** raises `k`, pinch-**out** lowers it; one event cannot move zoom >1.3× | React's `onWheel` is **passive**, so `preventDefault` there is a no-op and the browser page-zooms — which resizes the layout and restarts the simulation. Direction is read from the **camera**, because a pixel count cannot tell zoom-in from zoom-out (zoom far enough and the ink falls again) |
+| **T15.6** | The threshold slider actually reaches the graph | The network is a full-bleed `z-10` overlay *later in the DOM* than the `z-10` FilterPanel, so its canvas was silently eating every click in the panel. It **looked** completely normal |
+| **T15.7** | "Show on the map" unmounts the graph and flies the camera to the institution | An invisible effect is not a feature |
+| **T15.8** | The hover popup is **pre-mounted**, is **never rebuilt** (0 additions across 10 hovers), reaches full opacity, and **never paints in the top-left corner** | MapLibre defers popup DOM writes to its render-task queue, so a popup *created* on hover spends its first frames unpositioned at the container origin. Crossing bare map between two schools rebuilt it every time, strobing a white card in the corner |
+
+**Two traps this section is written to avoid.** A test that is happiest when the feature is absent is not a test: T15.8 asserts a popup *existed* and *became visible*, because without that it passes trivially on a dead feature (it did, once — a prior test had failed and left the run in the wrong view). And the colour thresholds are tuned to the **actual fills** (`#3B82F6`, `#DC2626`), not to "bluish" — the edge grey `(100,116,139)` at low alpha comes back from `getImageData` as `(100,114,141)` after the premultiply round-trip, and a loose `b > 140` test counted every antialiased **edge** as a coloured node.
+
+---
+
 ## Accessibility rule (enforced, T1.2)
 
 **No `aria-hidden` container may contain focusable controls.** A collapsed panel that is merely *clipped* keeps its checkboxes, sliders and buttons in the tab order and the accessibility tree — so a keyboard or screen-reader user lands inside a panel that, as far as they have been told, does not exist. (This is also a plain ARIA violation.) Every collapsible here — the filter panel body, the Legend body, the GeoPicker's province/municipality sections, and the closed detail drawer — is `inert` when hidden. The test walks the DOM and fails on any `aria-hidden="true"` element that still contains an `input`, `button`, `select`, `textarea`, link, or positive `tabindex`.

@@ -65,6 +65,19 @@ body {
   pointer-events: none;
 }
 
+/* The hover card is now MOUNTED ONCE AND MOVED, not rebuilt for each node — a rebuilt
+   MapLibre popup paints one frame at the container's origin (the top-left corner of the
+   screen) before it is positioned, and hovering along a row of schools flashed a white card
+   up there over and over. So "hidden" has to be a style, not an unmount. `--off` is also what
+   covers the popup's very first frame, which is the one that would be mispositioned. */
+.ugnay-popup--hover {
+  transition: opacity 0.12s ease;
+}
+
+.ugnay-popup--off {
+  opacity: 0;
+}
+
 /* Ease the hover card in rather than snapping it into place. */
 .ugnay-popup {
   animation: ugnay-pop-in 160ms ease-out;

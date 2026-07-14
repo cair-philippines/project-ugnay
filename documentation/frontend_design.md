@@ -178,20 +178,27 @@ The map answers a **one-hop** question — *is there a next level nearby?* — a
 
 Seeing that requires seeing the **chain**, and on a map you cannot: position is already spent on coordinates, so a school with no onward pathway looks exactly like a school with a perfect one — a dot in a field of dots. In a force layout **position is the structure**. A stranded institution has nothing pulling it inward, so it drifts to the periphery and the eye finds it unprompted. We are not annotating the answer; the layout is letting the graph state it.
 
-### 5B.2 Grammar (deliberately NOT the map's)
+### 5B.2 Grammar — the graph starts blank, and filters are the question (rewritten, Round 12 — 2026-07-14)
+
+**The first version got this wrong and has been replaced.** It spent *fill* on the verdict while *shape + a hairline ring* carried the sector, so every mark encoded two orthogonal things at once and a settled province read as noise. Worse, it answered a question nobody had asked: all three verdicts were painted at all times, competing, before the user had said what they were looking for.
 
 | Channel | Map | Network |
 |---|---|---|
-| **Fill** | sector | **the verdict** (cut / dead-end / complete) |
+| **Fill** | sector | **sector — the same colours**, and only once you ask for it |
 | **Shape** | sector | sector (unchanged) |
-| **Ring** | — | sector colour, so sector survives the fill being reassigned |
+| **Highlight** (halo + ring + full opacity + size) | — | **the verdict**, and only once you ask for it |
 | **Position** | geography | **graph structure** |
 
-Three nested severity states, per pathway: **cut** (red — no next step within the threshold) ⊂ **dead-end chain** (amber — has a next step, but nothing downstream ever reaches the end; *the state the map cannot show*) ⊂ not **complete** (grey, receding). Plus **N/A** — an assessment centre has no academic verdict, an HEI no tech-voc one. N/A is not a failure and is never painted as one.
+**Nothing is on by default.** The canvas opens deliberately bland: every institution grey, every edge pale. That is not an empty state — the shape of the graph (the clusters, and the specks with nothing attached to them) *is already the finding*. The filters tell you **who** those specks are.
 
-The red/amber ramp is **shared with the map's halos on purpose**: in both views red means *the next step is missing* and amber means *the next step is there, but it doesn't get you out*. The precise wording differs, so each legend spells its own out.
+- **Verdict filter** (cut / dead-end / complete) — lights the matching institutions and **dims the rest to 28%**. It must not delete them: the claim being made is that the cut ones sit at the **rim** of the structure, and you cannot see a rim with nothing behind it. (A first pass dimmed the field to 9–14% and the strongest thing this view says collapsed into red dots floating in white.)
+- **Sector filter** (three groups, five fill buckets) — **colours**, it does not hide. A learner's pathway runs through a TESDA centre whether or not you have TESDA switched on, so the network always graphs the whole loaded area (`NETWORK_SECTORS` in App). The map's sector toggles are therefore **hidden** in network view rather than left there doing nothing.
 
-Complete recedes but must not **vanish** — a first pass faded it so far that the healthy core became a grey smudge, and the broken nodes lost the baseline they are read against.
+Verdict definitions are unchanged (SPECS §A5): **cut** (no next step within the threshold) · **dead-end chain** (has a next step, but nothing downstream ever reaches the end — *the state the map cannot show*) · **complete** · **N/A** (an assessment centre has no academic verdict, an HEI no tech-voc one; N/A is not a failure and is never painted as one).
+
+**Bland ≠ invisible.** The neutral fill is `#94A3B8`, not `#CBD5E1`: the first attempt was so pale the whole graph was a smudge, which defeats the point of showing structure before anything is asked.
+
+**The readout IS the verdict filter.** The counts and the switch that acts on them are one control, bottom-right. Reading a number here and then hunting elsewhere for the thing that lights it up is a worse product, and it makes the first move obvious on a canvas that opens deliberately empty of colour.
 
 ### 5B.3 The pathway lens
 Academic and tech-voc are **separate lenses**, because SPECS §A5 tracks them separately: an SHS that can reach a training centre but no university is tech-voc complete and academic cut, and one merged verdict would hide *which* door is shut. The lens switches both the node verdicts and which edges are drawn.
@@ -213,6 +220,23 @@ No new edge payload ships: a level you *need* next is by definition a level you 
 - **The network OVERLAYS the map; MapView is never unmounted or hidden.** Unmounting throws away the WebGL context and the fitted camera; `display:none` resizes its container to zero, which reallocates and clears that context's buffer — the same defect that made the map flash white on every click (§5). Leaving it mounted at full size underneath costs an idle map and nothing else.
 - Charge softens as the graph grows (`-30 × clamp(900/n)`) or a big region blows itself apart; a weak `forceX/forceY` keeps the thousands of isolates at a 1 km threshold from drifting to infinity instead of settling into a readable halo around the core.
 - The header already has a **"Tech-Voc" sector toggle**. The lens button says the same words and does a different job, so it carries an explicit `aria-label` ("Tech-Voc pathway").
+- **`z-20`, not `z-10`, for anything that must be usable over the graph.** The network is a full-bleed `absolute inset-0 z-10` overlay that comes *later in the DOM* than the FilterPanel, so at an equal z-index it wins — and its canvas silently covered the whole panel. Everything still *looked* right, but nothing in it could be clicked in network view: **the threshold slider, which drives every edge and every verdict, was dead.** Found by Playwright's hit-target check (T15.6), not by looking at it.
+
+### 5B.5b The transition — the map unfolds into the graph (Round 12)
+The force layout is **seeded from the map's live projection** (`projectNode`, lent up from MapView through App). Frame zero of the network is therefore pixel-for-pixel the map the user was just looking at; the backdrop then fades up over ~700 ms while the forces pull it apart. You *watch* geography turn into structure, and the stranded institutions drift outward in front of you. Leaving is the same thing backwards: the graph folds back down onto the map's own pins (`MORPH_MS`, re-projecting **live** so it lands correctly even if the window was resized), then dissolves.
+
+The seed is not decoration — it is a far better initial condition than d3's default phyllotaxis spiral (real clusters already start near each other), so it settles in fewer ticks. A **re-layout** (the threshold moved) seeds from the *current* positions at `alpha: 0.35`, so the graph is nudged rather than detonated, and the user's mental map of it survives.
+
+### 5B.5c Two performance bugs that made the settle unwatchable (Round 12)
+Both were in code that "worked":
+1. **The draw loop listed `progress` and `hover` in its dependency array.** A worker tick (60/s) tore the effect down, re-created the rAF loop, and re-assigned `canvas.width` — which **reallocates the canvas backing store**. We were rebuilding the canvas sixty times a second underneath the very animation we wanted people to watch. Everything the loop reads now lives in a ref (`sceneRef`); the effect depends on the canvas size and nothing else, and the progress bar is a direct style write.
+2. **The worker ran the whole simulation in one synchronous `for` loop**, posting a frame every third tick. It finished as fast as the CPU could grind it out and dumped ~115 messages onto the main thread in a burst — nothing was paced to a frame, so the "animation" was whatever the browser managed to paint between floods. It now ticks for a frame's budget (~11 ms), posts once, and **yields** (`setTimeout(0)`; `requestAnimationFrame` does not exist in a dedicated worker).
+
+### 5B.5d Trackpad pinch: React cannot do this one
+A trackpad pinch does not arrive as a touch gesture — it arrives as a **`wheel` event with `ctrlKey` set**. React registers `wheel` as a **passive** listener on the root, so `preventDefault()` inside an `onWheel` prop is *silently a no-op*. Undefaulted, the browser page-zooms on top of us, which changes the layout, which fires the `ResizeObserver`, which **restarts the whole simulation**. The listener is bound by hand with `{ passive: false }`. The per-event step is also **capped at 1.25×**: devices disagree wildly about what `deltaY` means (a pinch may arrive as a stream of ±3s or as a single ±120), and without a cap a generous trackpad teleports you inside a node with no way back.
+
+### 5B.5e "Show on the map" — the hand-off back to geography
+Selecting a node in the graph always *did* select it on the map, but nothing said so, and an invisible effect is not a feature. The drawer now carries an explicit button with help text. It fires a **counter**, not a node (asking twice must fly twice), and App waits for the fold-back to finish before flying — the morph aims at where the pins are *now*, so moving the camera mid-morph would have the graph chasing a target running away from it.
 
 ### 5B.6 What it shows (Ilocos Norte, 3 km)
 Academic: **213 cut · 198 dead-end · 78 complete** (65 N/A). Tech-voc: **203 · 191 · 143** (17 N/A). The two lenses genuinely disagree — which is the point of tracking them apart.

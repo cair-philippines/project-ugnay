@@ -43,6 +43,18 @@ export const SECTOR_LABEL = {
   tesda: "TESDA",
 };
 
+// The same five buckets, grouped the way a planner talks about them. The network view's
+// colour filter is built from this: a sector header that turns its whole group on, and the
+// sub-sector rows beneath it. TESDA has one fill (training and assessment are ROLES, not
+// separate fills), so it is a group of one rather than a fake split.
+export const SECTOR_GROUPS = [
+  { key: "basic", title: "Basic Education", fills: ["public", "private"] },
+  { key: "higher", title: "Higher Education", fills: ["hei_public", "hei_private"] },
+  { key: "techvoc", title: "Technical–Vocational", fills: ["tesda"] },
+];
+
+export const ALL_FILL_KEYS = SECTOR_GROUPS.flatMap((g) => g.fills);
+
 // What an institution offers, as capability tokens. Two institutions are "the same"
 // only if their token sets match; an edge is drawn when a neighbour offers a token the
 // selected institution lacks.

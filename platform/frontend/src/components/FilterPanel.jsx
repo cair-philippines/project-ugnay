@@ -3,6 +3,8 @@ import { LegendBody } from "./Legend";
 import { NetworkLegendBody } from "./NetworkLegend";
 import ShapeMark from "./ShapeMark";
 import { NODE_SHAPES, SHAPE_LABEL } from "../lib/nodeShapes";
+import { SECTOR_GROUPS, SECTOR_LABEL } from "../lib/graph";
+import { STATUS_STYLE, VERDICTS } from "../lib/progression";
 
 // The map's control surface. Same content in two very different shells:
 //
@@ -101,6 +103,139 @@ function ShapePicker({ value, color, onChange }) {
   );
 }
 
+// ---------------------------------------------------------------- network filters
+//
+// The network view's controls are a different KIND of thing to the map's, and they are kept
+// visibly different so nobody mistakes one for the other. The map's filters decide what
+// EXISTS on screen. These decide what you are ASKING — the graph is fully drawn either way,
+// in grey, and a filter is how you interrogate it. Everything here starts OFF, on purpose:
+// an unasked question should not be answered.
+
+function VerdictFilter({ netVerdicts, onToggleVerdict, thresholdKm, pathwayEnds }) {
+  const HINT = {
+    cut: `no next step within ${thresholdKm} km`,
+    deadend: `has a next step, but never reaches ${pathwayEnds}`,
+    complete: `the chain closes`,
+  };
+  return (
+    <div>
+      <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide mb-1.5">
+        Highlight by verdict
+      </div>
+      <div className="space-y-1">
+        {VERDICTS.map((v) => {
+          const on = netVerdicts.has(v);
+          const col = STATUS_STYLE[v].color;
+          return (
+            <button
+              key={v}
+              onClick={() => onToggleVerdict(v)}
+              aria-pressed={on}
+              // One line, not two. The definitions live in the legend and on the hover title;
+              // repeating them here as sub-captions pushed the panel down onto the readout in
+              // the bottom-right corner and left the two boxes fighting for the same pixels.
+              title={HINT[v]}
+              className={`w-full flex items-center gap-2 rounded-md border px-2 py-1.5 text-left transition-all ${
+                on ? "" : "border-gray-200 bg-white hover:bg-gray-50"
+              }`}
+              style={on ? { backgroundColor: `${col}14`, borderColor: `${col}66` } : undefined}
+            >
+              <span
+                className="w-3 h-3 rounded-full shrink-0"
+                style={{
+                  backgroundColor: on ? col : "transparent",
+                  boxShadow: `inset 0 0 0 1.5px ${col}`,
+                }}
+              />
+              <span
+                className={`text-xs truncate ${
+                  on ? "font-semibold text-gray-800" : "text-gray-600"
+                }`}
+              >
+                {STATUS_STYLE[v].label}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+      <p className="text-[10px] text-gray-400 leading-snug mt-1.5">
+        Lights the matching institutions and fades the rest back — it does not remove them.
+      </p>
+    </div>
+  );
+}
+
+function SectorColourFilter({ netFills, onToggleFill, onToggleGroup, sectorColors, nodeShapes }) {
+  return (
+    <div>
+      <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide mb-1.5">
+        Colour by sector
+      </div>
+      <div className="space-y-2">
+        {SECTOR_GROUPS.map((g) => {
+          const all = g.fills.every((f) => netFills.has(f));
+          const some = g.fills.some((f) => netFills.has(f));
+          return (
+            <div key={g.key}>
+              <button
+                onClick={() => onToggleGroup(g.key, !all)}
+                className="w-full flex items-center gap-2 text-xs text-left group"
+              >
+                <span
+                  className={`w-3.5 h-3.5 rounded-[3px] border flex items-center justify-center text-[9px] leading-none shrink-0 transition-colors ${
+                    all
+                      ? "bg-gray-800 border-gray-800 text-white"
+                      : some
+                        ? "bg-gray-300 border-gray-400 text-white"
+                        : "bg-white border-gray-300 text-transparent group-hover:border-gray-500"
+                  }`}
+                >
+                  {all ? "✓" : some ? "–" : "✓"}
+                </span>
+                <span
+                  className={`font-semibold ${some ? "text-gray-700" : "text-gray-500"}`}
+                >
+                  {g.title}
+                </span>
+              </button>
+              <div className="pl-5 mt-0.5 space-y-0.5">
+                {g.fills.map((f) => {
+                  const on = netFills.has(f);
+                  return (
+                    <label
+                      key={f}
+                      className="flex items-center gap-2 text-[11px] cursor-pointer rounded px-1 py-0.5 hover:bg-gray-50"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={on}
+                        onChange={() => onToggleFill(f)}
+                        className="accent-blue-500 shrink-0"
+                      />
+                      <ShapeMark
+                        shape={nodeShapes?.[f] || "circle"}
+                        color={on ? sectorColors[f] : "#CBD5E1"}
+                        size={10}
+                      />
+                      <span className={`truncate ${on ? "text-gray-700" : "text-gray-400"}`}>
+                        {SECTOR_LABEL[f]}
+                      </span>
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      <p className="text-[10px] text-gray-400 leading-snug mt-1.5">
+        Same colours as the map. Sectors you haven’t picked stay grey — they are still there,
+        still holding the graph together.
+      </p>
+    </div>
+  );
+}
+
 function Slider({ label, value, unit, min, max, step = 1, onChange, ticks }) {
   return (
     <div>
@@ -164,8 +299,15 @@ export default function FilterPanel({
   // graph would not be merely unhelpful, it would be wrong.
   view = "map",
   pathway,
+  pathwayEnds,
   showReskilling,
   onToggleReskilling,
+  // Network-only. Both start EMPTY — see VerdictFilter/SectorColourFilter above.
+  netFills,
+  netVerdicts,
+  onToggleFill,
+  onToggleFillGroup,
+  onToggleVerdict,
 }) {
   const isNetwork = view === "network";
   // The sheet starts CLOSED on mobile (the whole point is an unobstructed map); the
@@ -196,15 +338,32 @@ export default function FilterPanel({
     ? `ugnay-sheet absolute inset-x-0 bottom-0 z-20 rounded-t-2xl border-t transition-[transform,opacity] duration-300 ease-out ${
         uiHidden ? exit : ""
       }`
-    : `absolute top-14 right-3 z-10 w-64 rounded-xl border transition-[transform,opacity] duration-300 ease-out ${
+    // z-20, NOT z-10. The network view is a full-bleed `absolute inset-0 z-10` overlay that
+    // comes LATER in the DOM, so at an equal z-index it wins — and its canvas was quietly
+    // covering this whole panel. Everything still looked right (the panel paints on top only
+    // by accident of stacking), but nothing in it could be clicked in the network view: the
+    // threshold slider, which drives both the edges AND the verdicts, was dead. Anything that
+    // must stay usable over the network sits at z-20 or above (legend, readout, drawer).
+    : `absolute top-14 right-3 z-20 w-64 rounded-xl border transition-[transform,opacity] duration-300 ease-out ${
         uiHidden ? exit : drawerOpen ? "-translate-x-72" : ""
       }`;
 
   // Body height: on mobile cap the sheet at 70vh so the map is never fully swallowed.
+  //
+  // On desktop the NETWORK gets a tighter cap, because the bottom-right corner is not empty
+  // there: the verdict readout lives in it. At the map's budget the panel grew all the way
+  // down onto the readout and the two boxes met with no gap at all — legible, but it read as
+  // a rendering bug. Shorter cap, panel scrolls, corner stays clear.
   const bodyOpen = isMobile
     ? "max-h-[70dvh] opacity-100"
-    : "max-h-[calc(100vh-14rem)] opacity-100";
-  const scrollCap = isMobile ? "max-h-[calc(70dvh-6rem)]" : "max-h-[calc(100vh-17rem)]";
+    : isNetwork
+      ? "max-h-[calc(100vh-21rem)] opacity-100"
+      : "max-h-[calc(100vh-14rem)] opacity-100";
+  const scrollCap = isMobile
+    ? "max-h-[calc(70dvh-6rem)]"
+    : isNetwork
+      ? "max-h-[calc(100vh-24rem)]"
+      : "max-h-[calc(100vh-17rem)]";
 
   return (
     <div
@@ -268,10 +427,55 @@ export default function FilterPanel({
         <div className={`overflow-y-auto overscroll-contain ${scrollCap}`}>
           {tab === "filters" && (
             <>
+              {/* NETWORK: an entirely different filter surface. The map's sector toggles
+                  decide what EXISTS; these decide what you are ASKING of a graph that is
+                  already fully drawn. Mixing the two sets in one panel would be the fastest
+                  way to make people think a grey node had been filtered out. */}
+              {isNetwork && (
+                <div className="px-3 py-2.5 space-y-3">
+                  <VerdictFilter
+                    netVerdicts={netVerdicts}
+                    onToggleVerdict={onToggleVerdict}
+                    thresholdKm={thresholdKm}
+                    pathwayEnds={pathwayEnds}
+                  />
+                  <div className="pt-3 border-t border-gray-100">
+                    <SectorColourFilter
+                      netFills={netFills}
+                      onToggleFill={onToggleFill}
+                      onToggleGroup={onToggleFillGroup}
+                      sectorColors={sectorColors}
+                      nodeShapes={nodeShapes}
+                    />
+                  </div>
+                  <div className="pt-3 border-t border-gray-100">
+                    <label className="flex items-start gap-2 text-[11px] text-gray-600 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={showReskilling}
+                        onChange={onToggleReskilling}
+                        className="accent-purple-500 mt-0.5 shrink-0"
+                      />
+                      <span>
+                        Show higher-ed → TESDA reskilling links
+                        <span className="block text-[10px] text-gray-400 leading-snug">
+                          Drawn dashed. They never complete a pathway.
+                        </span>
+                      </span>
+                    </label>
+                  </div>
+                </div>
+              )}
+
               {/* MOBILE ONLY: the controls that live in the desktop header. They're map
                   controls, so on a phone they belong with the other map controls rather
-                  than in a top bar that can't fit them. */}
-              {isMobile && (
+                  than in a top bar that can't fit them.
+                  A basemap and a gap halo are MAP ideas — in a force layout there is no
+                  terrain to put underneath and no pin to ring — and the sector toggles here
+                  govern what the MAP shows, which the network deliberately ignores (it always
+                  graphs the whole area, or the structure would be a lie). So on the network
+                  the whole block leaves, rather than sitting there doing nothing. */}
+              {isMobile && !isNetwork && (
                 <div className="px-3 py-2.5 space-y-2.5 border-b border-gray-100 bg-gray-50/60">
                   <div>
                     <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide mb-1.5">
@@ -298,53 +502,46 @@ export default function FilterPanel({
                     </div>
                   </div>
 
-                  {/* A basemap and a gap halo are MAP ideas. In a force layout there is no
-                      terrain to put underneath and no pin to ring, so they leave with the
-                      map rather than sit here inert — same rule as the desktop header. */}
-                  {!isNetwork && (
-                    <>
-                      <div className="flex items-center gap-2">
-                        <span className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide w-16 shrink-0">
-                          Basemap
-                        </span>
-                        <div className="flex items-center rounded-md border border-gray-200 overflow-hidden">
-                          {["plain", "satellite", "roads"].map((b) => (
-                            <button
-                              key={b}
-                              onClick={() => onBasemap(b)}
-                              className={`text-xs px-3 py-1.5 capitalize transition-all ${
-                                basemap === b ? "bg-gray-800 text-white" : "bg-white text-gray-500"
-                              }`}
-                            >
-                              {b}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-
-                      <button
-                        onClick={onGapToggle}
-                        className={`w-full text-xs rounded-md px-3 py-2 border transition-all text-left flex items-center justify-between ${
-                          gapVisible
-                            ? "bg-amber-500 text-white border-transparent"
-                            : "bg-white text-gray-600 border-gray-300"
-                        }`}
-                      >
-                        Gap analysis
-                        <span
-                          className={`text-[10px] font-semibold uppercase ${
-                            gapVisible ? "text-white/80" : "text-gray-400"
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide w-16 shrink-0">
+                      Basemap
+                    </span>
+                    <div className="flex items-center rounded-md border border-gray-200 overflow-hidden">
+                      {["plain", "satellite", "roads"].map((b) => (
+                        <button
+                          key={b}
+                          onClick={() => onBasemap(b)}
+                          className={`text-xs px-3 py-1.5 capitalize transition-all ${
+                            basemap === b ? "bg-gray-800 text-white" : "bg-white text-gray-500"
                           }`}
                         >
-                          {gapVisible ? "On" : "Off"}
-                        </span>
-                      </button>
-                    </>
-                  )}
+                          {b}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <button
+                    onClick={onGapToggle}
+                    className={`w-full text-xs rounded-md px-3 py-2 border transition-all text-left flex items-center justify-between ${
+                      gapVisible
+                        ? "bg-amber-500 text-white border-transparent"
+                        : "bg-white text-gray-600 border-gray-300"
+                    }`}
+                  >
+                    Gap analysis
+                    <span
+                      className={`text-[10px] font-semibold uppercase ${
+                        gapVisible ? "text-white/80" : "text-gray-400"
+                      }`}
+                    >
+                      {gapVisible ? "On" : "Off"}
+                    </span>
+                  </button>
                 </div>
               )}
 
-              <div className="px-3 py-2 space-y-3">
+              <div className={`px-3 py-2 space-y-3 ${isNetwork ? "hidden" : ""}`}>
                 {shownSectors.length === 0 && (
                   <p className="text-xs text-gray-400 italic">
                     No sectors active. Turn one on {isMobile ? "above" : "in the top bar"}.
@@ -402,8 +599,9 @@ export default function FilterPanel({
                 })}
               </div>
 
-              {/* The threshold governs BOTH the edges and the gap halos — it's a data
-                  control, not a cosmetic one, so it lives with the filters. */}
+              {/* The threshold governs the edges, the gap halos AND the chain verdicts —
+                  it's a data control, not a cosmetic one, so it lives with the filters and
+                  stays in BOTH views. */}
               <div className="px-3 py-2 border-t border-gray-100">
                 <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
                   Accessibility
@@ -418,9 +616,18 @@ export default function FilterPanel({
                   ticks={[1, 2, 3, 4, 5]}
                 />
                 <p className="text-[10px] text-gray-400 leading-snug mt-1">
-                  {isMobile ? "Tap" : "Click"} an institution to see everything within this{" "}
-                  <span className="font-semibold">road distance</span> that offers something it
-                  doesn’t.
+                  {isNetwork ? (
+                    <>
+                      One hop of the chain. Every edge in the graph — and every verdict — is
+                      re-drawn at this <span className="font-semibold">road distance</span>.
+                    </>
+                  ) : (
+                    <>
+                      {isMobile ? "Tap" : "Click"} an institution to see everything within this{" "}
+                      <span className="font-semibold">road distance</span> that offers something
+                      it doesn’t.
+                    </>
+                  )}
                 </p>
               </div>
             </>
@@ -504,8 +711,6 @@ export default function FilterPanel({
                   nodeShapes={nodeShapes}
                   pathway={pathway}
                   thresholdKm={thresholdKm}
-                  showReskilling={showReskilling}
-                  onToggleReskilling={onToggleReskilling}
                 />
               ) : (
                 <LegendBody

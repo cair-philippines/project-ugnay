@@ -1,21 +1,18 @@
 import { useState } from "react";
 import ShapeMark from "./ShapeMark";
-import { PATHWAYS } from "../lib/progression";
+import { PATHWAYS, STATUS_STYLE, VERDICTS, NEUTRAL_FILL } from "../lib/progression";
+import { SECTOR_GROUPS, SECTOR_LABEL } from "../lib/graph";
 
-// Legend for the network view. Same collapsible, bottom-anchored shell as the map's, but a
-// DIFFERENT grammar — and saying so is the point. Here, fill carries the verdict and shape
-// carries the sector; on the map, fill carries the sector. Two views, two jobs.
+// Legend for the network view. Same collapsible, bottom-anchored shell as the map's — but a
+// different grammar, and saying so plainly is most of its job.
 //
-// The caveat band is not decoration. This view makes a strong claim ("this school's
+// On the map, a mark's colour is simply WHAT IT IS. Here, colour is what you ASKED FOR:
+// nothing is coloured and nothing is lit until a filter says so. That is not a stylistic
+// choice, it is the honest one — a graph that answers three questions at once before you
+// have asked any of them is a graph you cannot read.
+//
+// The caveat band is not decoration either. This view makes a strong claim ("this school's
 // pathway goes nowhere"), and a strong claim has to carry its limits with it.
-
-const SECTORS = [
-  ["public", "DepEd Public"],
-  ["private", "DepEd Private"],
-  ["hei_public", "Higher Ed — Public"],
-  ["hei_private", "Higher Ed — Private"],
-  ["tesda", "TESDA"],
-];
 
 function SectionLabel({ children, className = "" }) {
   return (
@@ -27,17 +24,32 @@ function SectionLabel({ children, className = "" }) {
   );
 }
 
+const VERDICT_BLURB = {
+  cut: (km) => (
+    <>
+      <span className="font-medium">Cut</span> — no next step at all within {km} km.
+    </>
+  ),
+  deadend: (km, ends) => (
+    <>
+      <span className="font-medium">Dead-end chain</span> — there IS a next step, but nothing
+      downstream ever reaches {ends}.{" "}
+      <span className="text-gray-500">The map cannot show you this one.</span>
+    </>
+  ),
+  complete: () => (
+    <>
+      <span className="font-medium">Complete</span> — the chain closes.
+    </>
+  ),
+};
+
 // The key itself, without the floating shell — reused verbatim as a tab inside the mobile
 // bottom sheet, exactly as the map's LegendBody is. A phone cannot afford a second floating
 // panel; it can afford a tab.
-export function NetworkLegendBody({
-  sectorColors,
-  nodeShapes,
-  pathway,
-  thresholdKm,
-  showReskilling,
-  onToggleReskilling,
-}) {
+export function NetworkLegendBody({ sectorColors, nodeShapes, pathway, thresholdKm }) {
+  const ends = PATHWAYS[pathway].ends;
+
   return (
     <div className="text-xs">
       <p className="text-[11px] leading-relaxed text-gray-600">
@@ -46,83 +58,79 @@ export function NetworkLegendBody({
         goes nowhere has nothing holding it in — it drifts to the edge.
       </p>
 
-      <div className="mt-3 pt-3 border-t border-gray-200">
-        <SectionLabel className="mb-1.5">Fill = the verdict</SectionLabel>
-        <div className="space-y-1 text-gray-700">
-          <div className="flex items-start gap-2.5">
-            <span className="w-3 h-3 rounded-full bg-[#DC2626] shrink-0 mt-0.5" />
-            <span>
-              <span className="font-medium">Cut</span> — no next step at all within{" "}
-              {thresholdKm} km.
-            </span>
-          </div>
-          <div className="flex items-start gap-2.5">
-            <span className="w-3 h-3 rounded-full bg-[#F59E0B] shrink-0 mt-0.5" />
-            <span>
-              <span className="font-medium">Dead-end chain</span> — there IS a next step, but
-              nothing downstream ever reaches {PATHWAYS[pathway].ends}.{" "}
-              <span className="text-gray-500">The map cannot show you this one.</span>
-            </span>
-          </div>
-          <div className="flex items-start gap-2.5">
-            <span className="w-3 h-3 rounded-full bg-[#94A3B8] shrink-0 mt-0.5" />
-            <span>
-              <span className="font-medium">Complete</span> — the chain closes.
-            </span>
-          </div>
+      <div className="mt-2.5 pt-2.5 border-t border-gray-200">
+        <div className="flex items-start gap-2.5 text-[11px] leading-relaxed text-gray-600">
+          <span
+            className="w-3 h-3 rounded-full shrink-0 mt-0.5"
+            style={{ backgroundColor: NEUTRAL_FILL }}
+          />
+          <span>
+            Everything starts <span className="font-medium text-gray-800">grey</span>. The
+            clusters and the loose specks are already the finding; the filters tell you{" "}
+            <span className="font-medium text-gray-800">who</span> they are.
+          </span>
         </div>
       </div>
 
-      <div className="mt-3 pt-3 border-t border-gray-200">
-        <SectionLabel className="mb-1.5">Shape + ring = sector</SectionLabel>
+      <div className="mt-2.5 pt-2.5 border-t border-gray-200">
+        <SectionLabel className="mb-1.5">Highlight = the verdict</SectionLabel>
+        <div className="space-y-1 text-gray-700">
+          {VERDICTS.map((v) => (
+            <div key={v} className="flex items-start gap-2.5">
+              <span
+                className="w-3 h-3 rounded-full shrink-0 mt-0.5"
+                style={{
+                  backgroundColor: `${STATUS_STYLE[v].color}33`,
+                  boxShadow: `inset 0 0 0 1.5px ${STATUS_STYLE[v].color}`,
+                }}
+              />
+              <span>{VERDICT_BLURB[v](thresholdKm, ends)}</span>
+            </div>
+          ))}
+        </div>
+        <p className="mt-1.5 text-[10px] leading-relaxed text-gray-500">
+          Lighting one <span className="font-medium text-gray-700">fades the rest back</span>{" "}
+          rather than deleting it — the point is that the cut ones sit at the RIM of the
+          structure, and you cannot see a rim with nothing behind it.
+        </p>
+      </div>
+
+      <div className="mt-2.5 pt-2.5 border-t border-gray-200">
+        <SectionLabel className="mb-1.5">Fill = the sector (same as the map)</SectionLabel>
         <div className="grid grid-cols-2 gap-x-2 gap-y-1">
-          {SECTORS.map(([k, label]) => (
+          {SECTOR_GROUPS.flatMap((g) => g.fills).map((k) => (
             <div key={k} className="flex items-center gap-2 text-[11px] text-gray-700">
               <ShapeMark shape={nodeShapes?.[k] || "circle"} color={sectorColors[k]} size={11} />
-              <span className="truncate">{label}</span>
+              <span className="truncate">{SECTOR_LABEL[k]}</span>
             </div>
           ))}
         </div>
       </div>
 
-      <div className="mt-3 pt-3 border-t border-gray-200">
-        <label className="flex items-center gap-2 text-[11px] text-gray-700 cursor-pointer">
-          <input
-            type="checkbox"
-            checked={showReskilling}
-            onChange={onToggleReskilling}
-            className="accent-purple-500"
-          />
-          Show higher-ed → TESDA reskilling links
-        </label>
-        <p className="mt-1 text-[10px] leading-relaxed text-gray-500">
-          Real, and encouraged — but they are drawn as a dashed overlay and{" "}
-          <span className="font-medium text-gray-700">never complete a pathway</span>. A chain
-          that could double back through a university would call almost everything complete.
-        </p>
-      </div>
-
-      <div className="mt-3 pt-3 border-t border-gray-200">
+      {/* The caveats stay. This view makes a strong claim about a school's future, and a
+          strong claim has to carry its limits with it. The CONTROLS that used to sit here
+          (the reskilling toggle) have moved to the panel — a legend explains, it does not
+          operate, and having the same switch in two places invited the reading that they were
+          two different switches. */}
+      <div className="mt-2.5 pt-2.5 border-t border-gray-200">
         <SectionLabel className="mb-1.5 text-slate-500">What this does not say</SectionLabel>
         <div className="border-l-2 border-slate-300 pl-2.5 space-y-1.5 text-[11px] leading-relaxed text-gray-500">
           <p>
             A chain is a sequence of{" "}
             <span className="font-medium text-gray-700">local moves</span>, each within{" "}
-            {thresholdKm} km — not one commute. Four hops can still add up to a long way from
-            home.
+            {thresholdKm} km — not one commute. Four hops still add up.
           </p>
           <p>
-            The <span className="font-medium text-gray-700">verdict</span> is computed
-            nationwide, so it is true regardless of the area you loaded. The{" "}
-            <span className="font-medium text-gray-700">lines</span> can only be drawn between
-            institutions you have actually loaded — a node near the edge of your selection may
-            have neighbours off-screen.
+            The <span className="font-medium text-gray-700">verdict</span> is nationwide, so it
+            holds whatever you loaded. The{" "}
+            <span className="font-medium text-gray-700">lines</span> can only join institutions
+            you HAVE loaded — a node at the edge of your selection may have neighbours
+            off-screen.
           </p>
           <p>
             TESDA matching is{" "}
             <span className="font-medium text-gray-700">role-based only</span> — it does not
-            check that the assessment centre assesses the qualification trained for, so
-            tech-voc completeness is{" "}
+            check that the centre assesses what was trained for, so tech-voc completeness is{" "}
             <span className="font-medium text-gray-700">optimistic</span>.
           </p>
         </div>

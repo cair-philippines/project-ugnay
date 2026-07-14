@@ -107,6 +107,12 @@ export default function MapView({
   loading = false,
   exploreSeq = 0,
   onContextLost,
+  // Hands the live MapLibre instance up to App, which lends its projection to the network
+  // view — that projection is what lets the graph unfold out of the map and fold back into it.
+  onMapReady,
+  // Bumped by "Show on the map" in the detail drawer. A counter, not a node: asking twice for
+  // the same institution must fly there twice.
+  focusSeq = 0,
 }) {
   const [viewState, setViewState] = useState(INITIAL_VIEW_STATE);
   // Nodes stay hidden from the moment a new area is requested until the tiles are all in and
@@ -137,6 +143,10 @@ export default function MapView({
     revealTimer.current = null;
   };
   const [hoverNode, setHoverNode] = useState(null);
+  // The popup outlives the hover (see the long note by `popupVisible`): it is kept mounted and
+  // moved, rather than torn down and rebuilt, because a rebuilt MapLibre popup paints one
+  // frame in the container's top-left corner before it is positioned.
+  const [popupNode, setPopupNode] = useState(null);
   const [ready, setReady] = useState(false);
   const mapRef = useRef(null);
   const hoverFidRef = useRef(null);
@@ -317,6 +327,10 @@ export default function MapView({
     clearRevealTimers();
     setRevealed(false);
     setHoverNode(null);
+    // The popup is now KEPT between hovers, so it has to be dropped explicitly here — that is
+    // exactly the stale-node case this block was written for, and leaving it mounted would
+    // reintroduce the top-left flash by the other route.
+    setPopupNode(null);
     hoverFidRef.current = null;
   }
 
@@ -379,8 +393,29 @@ export default function MapView({
 
   useEffect(() => {
     const map = mapRef.current?.getMap();
-    if (map && typeof window !== "undefined") window.__ugnayMap = map; // probe hook
-  }, [ready]);
+    if (!map) return;
+    if (typeof window !== "undefined") window.__ugnayMap = map; // probe hook
+    onMapReady?.(map);
+  }, [ready, onMapReady]);
+
+  // "Show on the map", from the network view's detail drawer. Fires on a COUNTER, not on the
+  // node, so asking for the same institution twice flies there twice — and so that it never
+  // fires merely because the selection changed some other way (clicking a node on the map
+  // must not yank the camera).
+  const seenFocus = useRef(focusSeq);
+  useEffect(() => {
+    if (focusSeq === seenFocus.current) return;
+    seenFocus.current = focusSeq;
+    const map = mapRef.current?.getMap();
+    if (!map || !selectedNode) return;
+    if (!Number.isFinite(selectedNode.lon) || !Number.isFinite(selectedNode.lat)) return;
+    map.flyTo({
+      center: [selectedNode.lon, selectedNode.lat],
+      zoom: Math.max(map.getZoom(), 14),
+      duration: 900,
+      essential: true,
+    });
+  }, [focusSeq, selectedNode]);
 
   // A lost WebGL context is the one failure that looks like a bug in *our* code but isn't:
   // the canvas freezes on its last frame, the map stops responding to drags and to the zoom
@@ -474,6 +509,18 @@ export default function MapView({
     [onNodeClick, nodeIndex]
   );
 
+  // A short grace before the hover card is dismissed.
+  //
+  // Sliding from one node to its neighbour ALWAYS crosses bare map, and a mousemove over bare
+  // map has no features — so an instant dismissal tore the card down and rebuilt it between
+  // every pair of dots. Ninety milliseconds is long enough to cross the gap and far too short
+  // to feel sticky when you genuinely leave.
+  const hoverOffRef = useRef(null);
+  const cancelHoverOff = () => {
+    clearTimeout(hoverOffRef.current);
+    hoverOffRef.current = null;
+  };
+
   const handleMouseMove = useCallback(
     (e) => {
       const map = mapRef.current?.getMap();
@@ -484,6 +531,7 @@ export default function MapView({
         hoverFidRef.current = null;
       }
       if (f) {
+        cancelHoverOff();
         map.getCanvas().style.cursor = "pointer";
         hoverFidRef.current = f.id;
         map.setFeatureState({ source: "nodes", id: f.id }, { hover: true });
@@ -491,7 +539,12 @@ export default function MapView({
         setHoverNode((prev) => (prev?.node_id === n?.node_id ? prev : n || null));
       } else {
         map.getCanvas().style.cursor = "";
-        setHoverNode(null);
+        if (!hoverOffRef.current) {
+          hoverOffRef.current = setTimeout(() => {
+            hoverOffRef.current = null;
+            setHoverNode(null);
+          }, 90);
+        }
       }
     },
     [nodeIndex]
@@ -504,20 +557,52 @@ export default function MapView({
       hoverFidRef.current = null;
       map.getCanvas().style.cursor = "";
     }
+    cancelHoverOff();
     setHoverNode(null);
   }, []);
+
+  useEffect(() => () => clearTimeout(hoverOffRef.current), []);
 
   const NODE_LAYERS = ["nodes-basic", "nodes-higher", "nodes-techvoc"];
   // Don't double up: while a node is pinned, don't also hover-card it. And never render a
   // popup for a node that has left the current area, or for one with a bad coordinate —
   // MapLibre throws on an invalid LngLat, and a throw inside its update path can take the
   // whole render loop down with it (a frozen, undraggable map).
-  const showHover =
+  const showHover = Boolean(
     hoverNode &&
-    hoverNode.node_id !== selId &&
-    nodeIndex[hoverNode.node_id] &&
-    Number.isFinite(hoverNode.lon) &&
-    Number.isFinite(hoverNode.lat);
+      hoverNode.node_id !== selId &&
+      nodeIndex[hoverNode.node_id] &&
+      Number.isFinite(hoverNode.lon) &&
+      Number.isFinite(hoverNode.lat)
+  );
+
+  // THE POPUP IS MOUNTED ONCE AND ONLY EVER MOVED. It is never created on hover.
+  //
+  // It used to be `{showHover && <Popup/>}`, so every node built a brand-new MapLibre popup.
+  // A freshly added popup is NOT positioned in the same frame it is added: MapLibre defers
+  // popup DOM writes onto its render-task queue, so for the first frame or several the element
+  // sits at its untransformed origin — the container's TOP-LEFT CORNER — and only then jumps
+  // to the node. Hovering across a row of schools flashed a white card up there over and over.
+  //
+  // Delaying the reveal by a frame did NOT fix it (measured: `transform: matrix(1,0,0,1,0,3)`
+  // — i.e. still unpositioned — six frames into the fade). Any time-based reveal is racing a
+  // queue whose flush we do not control.
+  //
+  // So don't race it. The popup mounts as soon as the map has ANY institution, parked on one
+  // and invisible; its unpositioned frames happen there, at load, where nothing is on screen to
+  // flash. From then on hovering only ever calls setLngLat, which moves an already-positioned
+  // element from one valid place to another. There is no frame at which it can be in the corner
+  // and visible, because there is no frame at which it is created and visible.
+  useEffect(() => {
+    if (showHover) setPopupNode(hoverNode);
+  }, [showHover, hoverNode]);
+
+  const popupAnchor = useMemo(() => {
+    if (popupNode) return popupNode;
+    return nodes.find((n) => Number.isFinite(n.lon) && Number.isFinite(n.lat)) || null;
+  }, [popupNode, nodes]);
+
+  const popupVisible = showHover && !!popupNode;
 
   return (
     <Map
@@ -651,22 +736,25 @@ export default function MapView({
         />
       </Source>
 
-      {/* Hover: transient card, no close button. */}
-      {showHover && (
+      {/* Hover: transient card, no close button. Mounted once and then MOVED — never
+          re-created — see the note above `popupAnchor`. */}
+      {popupAnchor && (
         <Popup
-          longitude={hoverNode.lon}
-          latitude={hoverNode.lat}
+          longitude={popupAnchor.lon}
+          latitude={popupAnchor.lat}
           closeButton={false}
           closeOnClick={false}
           anchor="bottom"
           offset={14}
           maxWidth="none"
-          className="ugnay-popup ugnay-popup--hover"
+          className={`ugnay-popup ugnay-popup--hover ${
+            popupVisible ? "" : "ugnay-popup--off"
+          }`}
         >
           <InstitutionCard
-            node={hoverNode}
+            node={popupAnchor}
             colors={sectorColors}
-            place={places[hoverNode.node_id]}
+            place={places[popupAnchor.node_id]}
           />
         </Popup>
       )}

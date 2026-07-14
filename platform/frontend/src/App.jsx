@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { useTiles } from "./hooks/useTiles";
 import { useBoundaries } from "./hooks/useBoundaries";
-import { collectNodes, buildAccessIndex, buildNearestIndex } from "./lib/graph";
+import { collectNodes, buildAccessIndex, buildNearestIndex, SECTOR_GROUPS } from "./lib/graph";
+import { PATHWAYS } from "./lib/progression";
 import { accessibilityStats } from "./lib/stats";
 import SetupView from "./components/SetupView";
 import MapView from "./components/MapView";
@@ -79,6 +80,18 @@ const DEFAULT_SUBCATS = () => ({
 // De-emphasised (faded, but still on the map) subcategories — nothing dimmed by default.
 const DEFAULT_DIMMED = () => ({ basic: new Set(), higher: new Set(), techvoc: new Set() });
 
+// The NETWORK always graphs the whole loaded area, regardless of what the map's sector
+// filters are set to. Those filters answer "what do I want to look at"; the network answers
+// "what does the structure look like", and a structure with pieces missing is not a quieter
+// answer to that question — it is a wrong one. A learner's pathway runs through a TESDA
+// centre whether or not the user has TESDA switched on.
+const NETWORK_SECTORS = new Set(["basic", "higher", "techvoc"]);
+const NETWORK_SUBCATS = DEFAULT_SUBCATS();
+
+// How long NetworkView keeps drawing after `view` flips back to "map": long enough for it to
+// fold the graph back down onto the map's own pins. See NetworkView's MORPH_MS.
+const NETWORK_EXIT_MS = 460;
+
 function provincesOf(adminIndex, regionName) {
   const r = adminIndex?.regions.find((x) => x.region === regionName);
   return r ? r.provinces : [];
@@ -117,6 +130,17 @@ export default function App() {
   const [pathway, setPathway] = useState("academic");
   const [showReskilling, setShowReskilling] = useState(false);
 
+  // The network's two filter families. BOTH start empty: the graph opens grey and unasked,
+  // and toggling something is the first move. `netFills` colours by sector (the map's own
+  // colours); `netVerdicts` lights the chain verdict and fades everything else back.
+  const [netFills, setNetFills] = useState(() => new Set());
+  const [netVerdicts, setNetVerdicts] = useState(() => new Set());
+
+  // NetworkView outlives `view === "network"` by one animation: on the way out it folds the
+  // graph back down onto the map's pins, and it cannot do that after it has been unmounted.
+  const [netMounted, setNetMounted] = useState(false);
+  const netExiting = netMounted && view !== "network";
+
   const [nodeSize, setNodeSize] = useState(4);
   const [borderWidth, setBorderWidth] = useState(2);
   const [sectorColors, setSectorColors] = useState(DEFAULT_COLORS);
@@ -143,6 +167,69 @@ export default function App() {
   const [mapKey, setMapKey] = useState(0);
   const handleContextLost = useCallback(() => setMapKey((n) => n + 1), []);
 
+  // The live MapLibre instance. The network view borrows its projection so the graph can
+  // start as an exact copy of the map and unfold out of it — and fold back onto it on the
+  // way home. Held in a ref, not state: it changes on map load, and re-rendering the whole
+  // app for that would remount the very thing we just got a handle on.
+  const mapRef = useRef(null);
+  const handleMapReady = useCallback((map) => {
+    mapRef.current = map;
+  }, []);
+  // node → its screen position, in the same coordinate space as the network canvas (both
+  // are inset-0 in the same box). Null for a node the map cannot place.
+  const projectNode = useCallback((n) => {
+    const map = mapRef.current;
+    if (!map || !Number.isFinite(n?.lon) || !Number.isFinite(n?.lat)) return null;
+    try {
+      const p = map.project([n.lon, n.lat]);
+      return Number.isFinite(p.x) && Number.isFinite(p.y) ? p : null;
+    } catch {
+      return null;
+    }
+  }, []);
+
+  // "Show on the map" — the explicit hand-off from a node in the graph to its place on the
+  // ground. It waits for the fold-back to finish before flying: the morph aims at where the
+  // pins are NOW, so moving the camera mid-morph would have the graph chasing a target that
+  // is running away from it.
+  const [focusSeq, setFocusSeq] = useState(0);
+  const focusTimer = useRef(null);
+  const handleShowOnMap = useCallback(() => {
+    setView("map");
+    clearTimeout(focusTimer.current);
+    focusTimer.current = setTimeout(() => setFocusSeq((n) => n + 1), NETWORK_EXIT_MS + 60);
+  }, []);
+
+  const handleToggleVerdict = useCallback((v) => {
+    setNetVerdicts((prev) => {
+      const next = new Set(prev);
+      if (next.has(v)) next.delete(v);
+      else next.add(v);
+      return next;
+    });
+  }, []);
+
+  const handleToggleFill = useCallback((f) => {
+    setNetFills((prev) => {
+      const next = new Set(prev);
+      if (next.has(f)) next.delete(f);
+      else next.add(f);
+      return next;
+    });
+  }, []);
+
+  const handleToggleFillGroup = useCallback((groupKey, on) => {
+    const fills = SECTOR_GROUPS.find((g) => g.key === groupKey)?.fills || [];
+    setNetFills((prev) => {
+      const next = new Set(prev);
+      for (const f of fills) {
+        if (on) next.add(f);
+        else next.delete(f);
+      }
+      return next;
+    });
+  }, []);
+
   const fadeTimer = useRef(null);
   // First landing appears instantly (no fade — the fade-in revealed the empty map behind
   // it, which read as a flash). Only "Change area" re-entry fades in over the live map.
@@ -151,6 +238,19 @@ export default function App() {
   useEffect(() => {
     loadAdminIndex();
   }, [loadAdminIndex]);
+
+  // Mount the network on entry; keep it mounted through its exit animation.
+  useEffect(() => {
+    if (view === "network") {
+      setNetMounted(true);
+      return;
+    }
+    if (!netMounted) return;
+    const t = setTimeout(() => setNetMounted(false), NETWORK_EXIT_MS);
+    return () => clearTimeout(t);
+  }, [view, netMounted]);
+
+  useEffect(() => () => clearTimeout(focusTimer.current), []);
 
   // Region change → default to ALL provinces (provincial view is the default).
   const handleRegionChange = useCallback(
@@ -293,6 +393,11 @@ export default function App() {
     () => collectNodes(loadedTiles, activeSectors, subcats),
     [loadedTiles, activeSectors, subcats]
   );
+  // The network's node set: everything loaded, unfiltered (see NETWORK_SECTORS above).
+  const netNodes = useMemo(
+    () => collectNodes(loadedTiles, NETWORK_SECTORS, NETWORK_SUBCATS).nodes,
+    [loadedTiles]
+  );
   // Road distances, precomputed by the pipeline (OSRM) and carried in the tiles.
   // `access` = what's reachable within 5 km by road; `nearest` = nearest of each level,
   // nationwide and unbounded (drives the halos and the drawer's "nearest" panel).
@@ -364,30 +469,36 @@ export default function App() {
 
         {/* Sector toggles, gap analysis and basemap are DESKTOP-only here. On a phone they
             don't fit — they used to overflow and clip off the right edge — so they move
-            into the bottom sheet, where they sit with the other map controls. */}
+            into the bottom sheet, where they sit with the other map controls.
+            They are also MAP-only: the network always graphs the whole area (see
+            NETWORK_SECTORS), so a sector switch here would do nothing to it — and a control
+            that silently does nothing is worse than one that isn't there. The network's own
+            sector control lives in the filter panel and COLOURS rather than hides. */}
         {!isMobile && (
           <>
-            <div className="flex items-center gap-1.5 ml-2">
-              {[
-                ["basic", "Basic", "bg-blue-500"],
-                ["higher", "Higher", "bg-green-500"],
-                ["techvoc", "Tech-Voc", "bg-purple-500"],
-              ].map(([key, label, dot]) => {
-                const on = activeSectors.has(key);
-                return (
-                  <button
-                    key={key}
-                    onClick={() => handleSectorToggle(key)}
-                    className={`flex items-center gap-1.5 text-xs rounded px-2 py-0.5 border transition-all ${
-                      on ? "bg-gray-800 text-white border-transparent" : "bg-white text-gray-400 border-gray-200"
-                    }`}
-                  >
-                    <span className={`w-2 h-2 rounded-full ${dot} ${on ? "" : "opacity-40"}`} />
-                    {label}
-                  </button>
-                );
-              })}
-            </div>
+            {view === "map" && (
+              <div className="flex items-center gap-1.5 ml-2">
+                {[
+                  ["basic", "Basic", "bg-blue-500"],
+                  ["higher", "Higher", "bg-green-500"],
+                  ["techvoc", "Tech-Voc", "bg-purple-500"],
+                ].map(([key, label, dot]) => {
+                  const on = activeSectors.has(key);
+                  return (
+                    <button
+                      key={key}
+                      onClick={() => handleSectorToggle(key)}
+                      className={`flex items-center gap-1.5 text-xs rounded px-2 py-0.5 border transition-all ${
+                        on ? "bg-gray-800 text-white border-transparent" : "bg-white text-gray-400 border-gray-200"
+                      }`}
+                    >
+                      <span className={`w-2 h-2 rounded-full ${dot} ${on ? "" : "opacity-40"}`} />
+                      {label}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
 
             {/* Gap analysis and the basemap are MAP controls — a halo and a satellite layer
                 mean nothing in a force layout. They leave with the map rather than sit
@@ -470,6 +581,8 @@ export default function App() {
               loading={anyLoading}
               exploreSeq={exploreSeq}
               onContextLost={handleContextLost}
+              onMapReady={handleMapReady}
+              focusSeq={focusSeq}
             />
           </ErrorBoundary>
 
@@ -504,8 +617,14 @@ export default function App() {
             // network graph would be wrong, not merely unhelpful.
             view={view}
             pathway={pathway}
+            pathwayEnds={PATHWAYS[pathway].ends}
             showReskilling={showReskilling}
             onToggleReskilling={() => setShowReskilling((v) => !v)}
+            netFills={netFills}
+            netVerdicts={netVerdicts}
+            onToggleFill={handleToggleFill}
+            onToggleFillGroup={handleToggleFillGroup}
+            onToggleVerdict={handleToggleVerdict}
           />
 
           {/* The network OVERLAYS the map rather than replacing it. Unmounting MapView would
@@ -513,11 +632,13 @@ export default function App() {
               `display:none` would resize its container to zero, which reallocates and
               clears that context's buffer — the same defect that made the map flash white
               on every click. Leaving it mounted at full size underneath costs an idle map
-              and nothing else. */}
-          {view === "network" && (
+              and nothing else — and it is what makes the transition possible at all: the
+              graph is SEEDED from the map's live projection, so it opens as a pixel-perfect
+              copy of the map and unfolds out of it. */}
+          {netMounted && (
             <ErrorBoundary>
               <NetworkView
-                nodes={nodes}
+                nodes={netNodes}
                 accessIndex={accessIndex}
                 nearestIndex={nearestIndex}
                 thresholdKm={thresholdKm}
@@ -526,9 +647,14 @@ export default function App() {
                 sectorColors={sectorColors}
                 nodeShapes={nodeShapes}
                 showReskilling={showReskilling}
+                netFills={netFills}
+                netVerdicts={netVerdicts}
+                onToggleVerdict={handleToggleVerdict}
                 selectedNode={selectedNode}
                 onNodeClick={setSelectedNode}
                 isMobile={isMobile}
+                projectNode={projectNode}
+                exiting={netExiting}
               />
             </ErrorBoundary>
           )}
@@ -577,6 +703,8 @@ export default function App() {
             nearestIndex={nearestIndex}
             onClose={() => setSelectedNode(null)}
             isMobile={isMobile}
+            view={view}
+            onShowOnMap={handleShowOnMap}
           />
       </div>
 
