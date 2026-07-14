@@ -34,6 +34,7 @@ A batch pipeline turns four coordinate datasets into small per-area map tiles th
 | **S2 / S2b** | Route distances through **OSRM** (OpenStreetMap road network). `S2b` computes door-to-door road distance for every pair within reach — the numbers the map draws. |
 | **S3 / S4** | Derive progression edges and per-institution / per-area gap metrics. |
 | **S6** | Slice everything into one JSON tile per municipality (+ an area index and cleaned admin boundaries) — the served artifact. |
+| **S7** | Walk the whole progression chain — can a learner starting here actually *reach* a university, or an assessment centre? Answered nationwide, because a chain can leave the area you are looking at. |
 
 The frontend is a **Vite + React + MapLibre** app that reads those tiles. Every distance it shows is a precomputed road distance; institutions plotted off the road network are flagged so a bad coordinate never masquerades as a real gap.
 
@@ -42,7 +43,7 @@ Roughly 66,000 institutions: ~47.6K DepEd public, ~8.3K DepEd private, ~2.4K CHE
 ## Repository layout
 
 ```
-scripts/         Pipeline stages (s1…s6, s2b, boundary cleaning)
+scripts/         Pipeline stages (s1…s7, s2b, boundary cleaning)
 modules/         Shared pipeline logic (OSRM client, distance lookup, aggregation)
 platform/frontend/   The web app (Vite + React + MapLibre)
 tests/e2e/       Playwright runner for TESTS.md (41 browser scenarios)

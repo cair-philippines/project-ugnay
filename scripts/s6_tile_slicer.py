@@ -71,6 +71,15 @@ NODE_COLS = [
     # its gap halo — a false red dot on a school plotted in open sea reads as a real
     # accessibility gap when it is really a data error.
     "road_unreliable",
+    # From S7: can a learner starting here reach the END of a pathway, not just its next
+    # step? `*_min_km` is the smallest threshold at which the chain closes (0 = never,
+    # at any threshold we serve), so the frontend tests `0 < min_km <= thresholdKm`.
+    # `*_applies` says the institution is even ON that pathway — an assessment centre has
+    # no academic verdict and an HEI has no tech-voc one; those are N/A, not gaps.
+    # This is the one thing the browser cannot work out for itself: a chain can walk
+    # clean out of the area the user has loaded.
+    "academic_applies", "academic_min_km",
+    "techvoc_applies", "techvoc_min_km",
 ]
 
 # Canonical PSGC name crosswalk (from project_coordinates). Keyed on the first
@@ -266,6 +275,7 @@ def main():
     access    = pd.read_parquet(args.graph_dir / "pairs_access.parquet")
     nearest   = pd.read_parquet(args.graph_dir / "nearest_by_level.parquet")
     snap      = pd.read_parquet(args.graph_dir / "node_snap.parquet")
+    chain     = pd.read_parquet(args.graph_dir / "chain_reach.parquet")
     print(f"  nodes: {len(nodes):,}  |  edges: {len(edges):,}  "
           f"|  cont_muni: {len(cont_muni):,} rows")
     print(f"  access pairs (road ≤5 km): {len(access):,}  |  nearest rows: {len(nearest):,}")
@@ -274,6 +284,24 @@ def main():
     unreliable = dict(zip(snap["node_id"], snap["road_unreliable"]))
     nodes["road_unreliable"] = nodes["node_id"].map(unreliable).fillna(False).astype(bool)
     print(f"  road_unreliable nodes: {int(nodes['road_unreliable'].sum()):,}")
+
+    # Attach the S7 chain verdicts. A missing node would silently become "N/A on both
+    # pathways" — a stranded school rendered as nothing to see — so require full coverage
+    # rather than filling a default.
+    nodes = nodes.merge(chain, on="node_id", how="left", validate="one_to_one")
+    missing = nodes["academic_min_km"].isna().sum()
+    if missing:
+        raise SystemExit(
+            f"ERROR: {missing:,} institutions have no S7 chain verdict. "
+            "Re-run scripts/s7_progression_chains.py against this node table."
+        )
+    for c in ("academic_min_km", "techvoc_min_km"):
+        nodes[c] = nodes[c].astype(int)
+    for c in ("academic_applies", "techvoc_applies"):
+        nodes[c] = nodes[c].astype(bool)
+    print(f"  chain-complete @5 km — academic: "
+          f"{int((nodes['academic_applies'] & nodes['academic_min_km'].gt(0)).sum()):,}  "
+          f"tech-voc: {int((nodes['techvoc_applies'] & nodes['techvoc_min_km'].gt(0)).sum()):,}")
 
     # --- Token rule: keep only pairs where the destination offers something new ---
     tok = {r["node_id"]: tokens_of(r) for r in nodes.to_dict(orient="records")}

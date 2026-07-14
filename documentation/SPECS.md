@@ -56,6 +56,32 @@ Three decisions taken while making the deployed platform usable on a phone.
 
 **3. §3.5 says accessibility is "not committed (open)". One rule is now committed:** *no `aria-hidden` container may contain focusable controls.* A collapsed panel that is merely clipped keeps its checkboxes and buttons in the tab order and the a11y tree, so a keyboard or screen-reader user lands inside a panel that, as far as they've been told, does not exist. All collapsibles and the closed detail drawer are `inert`. Enforced by test T1.2. `prefers-reduced-motion` is also honoured. Broader accessibility remains open. → `frontend_design.md` §6B.
 
+### A5 — Progression RETURNS, as a chain, in a view of its own (2026-07-13) — **resolves §2.1, supersedes A3, revives A1's deferral**
+
+A1 deprioritised progression to post-demo. It is back, as a **network view decoupled from the map** — a node-link graph, not a geography — whose purpose is to make it obvious at a glance which institutions sit on a pathway that goes somewhere and which do not. New pipeline stage: **`scripts/s7_progression_chains.py`**.
+
+**Why a second view at all.** The map asks a **one-hop** question — "is there a next level nearby?" — and that question has a flattering answer. An institution can have a perfectly good next step and still be stranded, because the place that step leads to is *itself* a dead end. At 5 km there are ~1,600 clusters, holding ~8,500 institutions, that are richly connected internally and contain **no HEI and no assessment centre anywhere inside them**: a learner goes ES → JHS → SHS and the pathway simply stops. **19,934 institutions have a next step but can never reach higher ed; 19,715 can never reach an assessment centre.** Every one of them is painted healthy by today's gap halo. Only a chain walk finds them, and a chain can leave the loaded area — so it is computed nationwide in the pipeline, not in the browser.
+
+**The ruleset (resolves §2.1's open questions).** Two pathways, tracked **separately**, sharing a spine and diverging at SHS:
+
+| Pathway | Chain | Terminal |
+|---|---|---|
+| **Academic** | ES → JHS → SHS → HEI | HEI |
+| **Tech-voc** | ES → JHS → SHS → TESDA training → TESDA assessment (training→assessment is also a standalone entry) | assessment centre |
+
+- **The SHS branch is NOT collapsed to one verdict.** An SHS that can reach a training centre but no university is tech-voc complete and academic cut. One combined verdict would hide *which* of the two doors is shut, so both are carried.
+- **HEI stays terminal** (this is A3, retained). The `HEI → TESDA training` **reskilling** edge is still emitted and will be *rendered* as a distinct overlay — it is real policy — but it carries `counts_toward_chain = False` and is excluded from both walks. Letting it count would let a chain "complete" by detouring backwards through a university. This **supersedes A3's "the frontend ignores it"**: it is now drawn, but it never completes a pathway.
+- **Self-satisfaction** (from §1.6, unchanged): an institution offering consecutive levels satisfies that step inside itself and emits no edge for it, so outgoing edges leave from its **top** offered level. A TESDA site holding both roles internalises train→assess. (Confirmed against the data: **zero** institutions have a level "hole", so every one has exactly **one** outstanding step.)
+- **`JHS → TESDA` remains excluded** (§2.1, unchanged).
+
+**Three severity states per pathway**, nested and honest: **cut** (no next step within the threshold) ⊂ **dead-end chain** (has a next step, but nothing downstream reaches a terminal — the newly visible state) ⊂ *not* **complete** (reaches a terminal).
+
+**What ships in the tiles.** Progression edges are a strict subset of the accessibility adjacency already in the tiles (a *needed next level* is by definition a token the origin lacks), so the frontend **derives the edges itself** — no new edge payload. The pipeline ships only what the browser cannot know: four per-node fields, `{academic,techvoc}_{applies,min_km}`. `min_km` is the smallest threshold at which the chain closes (`0` = never), so the frontend tests `0 < min_km <= thresholdKm`. `applies` marks whether the institution is even *on* that pathway — an assessment centre has no academic verdict, an HEI no tech-voc one; those are **N/A, not gaps**, and must not be painted as failures. Tile growth: 177.5 → 183.2 MB.
+
+**Distances are S2b's** (routed, door-to-door). Note `s3_progression_edges.py` also emits a progression table, but its cross-sector distances are from the **haversine era**; S7 supersedes it for anything user-facing, and the S4 continuity aggregations built on S3 are still on the old distances and want rebuilding.
+
+**Stack impact: minimal.** No graph database, no deck.gl, no sigma.js — the worst-case view (a whole region, 6,723 nodes) is served by `d3-force` on a canvas. → `frontend_design.md` §5B.
+
 ---
 
 ## 1. Product & UX
