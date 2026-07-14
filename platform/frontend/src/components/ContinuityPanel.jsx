@@ -1,3 +1,23 @@
+// ⚠️ DEAD — and its data source has been removed. Read this before reviving it.
+//
+// This panel reads `tile.continuity`, which S6 no longer ships (2026-07-13). It has never
+// been mounted (App.jsx keeps the import commented out), and the payload it wanted was
+// computed by S4 from S3's edge table — whose cross-sector distances are STRAIGHT LINES
+// from the haversine era. So every percentage it would have rendered was an overstatement:
+// only ~53% of pairs within 5 km as the crow flies survive the drive.
+//
+// It degrades quietly rather than crashing (`tile.continuity || {}` → empty), but do not
+// mistake that for it working.
+//
+// The question it was built to answer — "what share of institutions in this area can keep
+// going?" — is now answered by the network view, from S7's road-distance chain walk, and
+// answered better: S4 only ever asked whether the NEXT step was reachable, while S7 asks
+// whether the pathway ever ends anywhere at all. Those give very different numbers (22.7%
+// vs 48.7% nationwide at 5 km), and the second one is the one that matters.
+//
+// Kept because the Round-3 sidebar design (frontend_design.md §5A.6) is still on the table.
+// If it comes back, rebuild it on S7 — do not re-ship the S4 rollups.
+
 import { useMemo } from "react";
 
 const TRANSITION_LABELS = {

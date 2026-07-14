@@ -82,6 +82,24 @@ A1 deprioritised progression to post-demo. It is back, as a **network view decou
 
 **Stack impact: minimal.** No graph database, no deck.gl, no sigma.js — the worst-case view (a whole region, 6,723 nodes) is served by `d3-force` on a canvas. → `frontend_design.md` §5B.
 
+### A6 — The tiles stop shipping S3/S4 (2026-07-13) — **retires §2.4's edge payload; supersedes §1.9's area-continuity plan**
+
+A5 noted in passing that S3/S4 were still on haversine distances "and want rebuilding". They are now **out of the served artifact entirely**, which is the more important half of that sentence: stale numbers nobody reads are merely dead weight, but stale numbers *sitting in the product* are a trap, waiting for someone to surface them and believe them.
+
+Three payloads left the tiles. **Nothing in the frontend read any of them.**
+
+| Payload | Share of tile bytes | Why it was wrong to keep |
+|---|---|---|
+| `edges` (S3) | **72.6%** | ~816k progression edges whose cross-sector distances are **straight lines**. The map draws from `access`; the network view *derives* progression edges from `access` too (a level you need next is by definition a level you lack). Never read, and wrong if it had been. |
+| `neighbor_nodes` | 0.2% | Derived from `edges`, and carried only id/lat/lon — not tokens — so nothing could have rendered from it anyway. |
+| `continuity` (S4) | 0.1% | Municipal continuity %, computed from S3's edges, so it inherits the straight lines. Its only consumer, `ContinuityPanel`, has never been mounted. |
+
+**Result: 183.2 MB → 73.9 MB (-60%).** The worst tile — NCR, the one that made dense cities slow to open — went **6.9 MB → 1.7 MB**. A tile is now exactly the four things that are read: `meta`, `nodes`, `access`, `nearest`.
+
+**§1.9's area-level continuity % is not lost — it is replaced and improved.** S4 only ever asked whether the **next step** was reachable. The network view's readout answers the same question from S7's **road-distance chain walk**, and answers a strictly stronger version: whether the pathway **ever ends anywhere**. The two are not close — 22.7% vs 48.7% nationwide at 5 km — and the second is the one that matters.
+
+S3 and S4 still run and still write their parquets; they simply no longer reach a planner. Both scripts now carry a ⚠️ header saying so. **Rebuild them on S2b/S7 before trusting those files again.**
+
 ---
 
 ## 1. Product & UX

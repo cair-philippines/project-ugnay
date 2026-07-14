@@ -8,9 +8,28 @@ For each municipality with at least one institution writes:
     nodes          — institutions within the municipality (selected columns)
     access         — ROAD-distance accessibility adjacency (S2b), origin → [[dest_id, metres]]
     nearest        — nearest institution offering each level the node lacks, by road (S2b)
-    edges          — progression edges where origin is in this municipality
-    neighbor_nodes — edge destinations outside this municipality (id + coords only)
-    continuity     — per-transition per-band stats from S4 municipal aggregation
+
+WHAT THIS NO LONGER SHIPS (removed 2026-07-13), and why it matters
+------------------------------------------------------------------
+Three payloads were being served that nothing read:
+
+  edges          — S3's progression edges. **72.6% of every tile's bytes.** Nothing in the
+                   frontend ever read `tile.edges`: the map draws from `access`, and the
+                   network view DERIVES progression edges from `access` too (a level you
+                   need next is by definition a level you lack). Worse than dead weight —
+                   S3's cross-sector distances are from the haversine era, so this was
+                   ~816k stale straight-line edges sitting in the served artifact waiting
+                   for someone to believe them.
+  neighbor_nodes — derived from `edges`; carried only id/lat/lon, not tokens, so it could
+                   not have been rendered from anyway. Dies with its parent.
+  continuity     — S4's municipal continuity %, which is computed from S3's edges and so
+                   inherits the same straight-line distances. Its only consumer,
+                   ContinuityPanel, has never been mounted. The network view's readout is
+                   now the honest, road-distance answer to the same question.
+
+Removing them cut the tile set from 183.2 MB to 73.9 MB (-60%), and the worst tile — NCR,
+the one that made dense cities slow to open — from 6.9 MB to 1.7 MB. S3 and S4 still run
+and still write their parquets; they simply no longer reach the browser. See SPECS §A6.
 
 `access` is what the frontend draws on click. It carries ROUTED ROAD distance from
 S2b, replacing the straight-line haversine the browser used to compute. Two rules are
@@ -54,7 +73,6 @@ from modules.text_clean import find_mojibake
 OUTPUT_DIR        = PROJECT_DIR / "output"
 NODES_PATH        = OUTPUT_DIR / "nodes" / "institutions.parquet"
 GRAPH_DIR         = OUTPUT_DIR / "graph"
-AGG_DIR           = OUTPUT_DIR / "aggregations"
 DEFAULT_TILES_DIR = OUTPUT_DIR / "tiles"
 
 # Columns included in each tile's node list (excludes spatial/admin-only cols)
@@ -199,13 +217,6 @@ def build_muni_lookup(municity_keys):
           f"(crosswalk {cw_path.name}; {n_fallback} via 5-digit fallback)")
     return out
 
-# Minimal columns for neighbor nodes (rendered as edge endpoints only)
-NEIGHBOR_COLS = ["lat", "lon", "source"]
-
-# Edge columns in tile
-EDGE_COLS = ["origin_id", "dest_id", "transition", "distance_km", "intra_node"]
-
-
 def clean_val(v):
     """Convert numpy scalars and NaN/inf to JSON-safe Python types."""
     if isinstance(v, bool):
@@ -233,30 +244,11 @@ def clean_record(d: dict) -> dict:
     return {k: clean_val(v) for k, v in d.items()}
 
 
-def build_continuity_dict(cont_by_muni: dict, municity: str) -> dict:
-    """Return nested continuity dict: transition → band_km → {stats}."""
-    sub = cont_by_muni.get(municity)
-    if sub is None:
-        return {}
-    result = {}
-    for _, row in sub.iterrows():
-        t = str(row["transition"])
-        b = int(row["band_km"])
-        result.setdefault(t, {})[b] = {
-            "n_origins":     int(row["n_origins"]),
-            "n_reachable":   int(row["n_reachable"]),
-            "continuity_pct": float(row["continuity_pct"]),
-            "band_label":    str(row["band_label"]),
-        }
-    return result
-
-
 def main():
     parser = argparse.ArgumentParser(description="S6: Per-municipality tile slicer")
     parser.add_argument("--tiles-dir",  type=Path, default=DEFAULT_TILES_DIR)
     parser.add_argument("--nodes-path", type=Path, default=NODES_PATH)
     parser.add_argument("--graph-dir",  type=Path, default=GRAPH_DIR)
-    parser.add_argument("--agg-dir",    type=Path, default=AGG_DIR)
     args = parser.parse_args()
 
     tiles_dir = args.tiles_dir
@@ -270,14 +262,11 @@ def main():
     nodes     = pd.read_parquet(args.nodes_path)
     if "hei_sector" in nodes.columns:
         nodes["hei_is_public"] = nodes["hei_sector"].map(_hei_is_public)
-    edges     = pd.read_parquet(args.graph_dir / "progression_edges.parquet")
-    cont_muni = pd.read_parquet(args.agg_dir / "continuity_municipal.parquet")
     access    = pd.read_parquet(args.graph_dir / "pairs_access.parquet")
     nearest   = pd.read_parquet(args.graph_dir / "nearest_by_level.parquet")
     snap      = pd.read_parquet(args.graph_dir / "node_snap.parquet")
     chain     = pd.read_parquet(args.graph_dir / "chain_reach.parquet")
-    print(f"  nodes: {len(nodes):,}  |  edges: {len(edges):,}  "
-          f"|  cont_muni: {len(cont_muni):,} rows")
+    print(f"  nodes: {len(nodes):,}")
     print(f"  access pairs (road ≤5 km): {len(access):,}  |  nearest rows: {len(nearest):,}")
 
     # Attach the S2b road-reliability flag; default False for any node S2b didn't see.
@@ -326,20 +315,6 @@ def main():
         for nid, g in nearest.groupby("node_id", sort=False)
     }
 
-    # --- Pre-group continuity by municipality ---
-    cont_by_muni = {k: g for k, g in cont_muni.groupby("municity_psgc")}
-
-    # --- Map node_id → municity_psgc for edge routing ---
-    node_municity = nodes.set_index("node_id")["municity_psgc"].to_dict()
-
-    edges = edges.copy()
-    edges["origin_municity"] = edges["origin_id"].map(node_municity)
-    edges_valid = edges.dropna(subset=["origin_municity"])
-    edges_by_muni = {k: g for k, g in edges_valid.groupby("origin_municity")}
-
-    # --- Node lookup for neighbor coords (ALL nodes, incl. null-municity) ---
-    node_lookup = nodes.set_index("node_id")[NEIGHBOR_COLS].to_dict(orient="index")
-
     # --- Group institutions by municipality (excludes null-municity) ---
     nodes_with_muni = nodes.dropna(subset=["municity_psgc"])
     muni_groups = list(nodes_with_muni.groupby("municity_psgc"))
@@ -350,10 +325,8 @@ def main():
 
     # --- Per-municipality tile loop ---
     n_written = 0
-    total_edge_count = 0
     total_access_pairs = 0
     tile_node_cols = [c for c in NODE_COLS if c in nodes.columns]
-    edge_cols_avail = [c for c in EDGE_COLS if c in edges.columns]
 
     for municity, node_grp in muni_groups:
         first = node_grp.iloc[0]
@@ -372,38 +345,6 @@ def main():
             for r in node_grp[tile_node_cols].to_dict(orient="records")
         ]
 
-        # Tile edges (origins in this municipality)
-        muni_edges_df = edges_by_muni.get(municity)
-        if muni_edges_df is not None and len(muni_edges_df):
-            tile_edges = [
-                clean_record(r)
-                for r in muni_edges_df[edge_cols_avail].to_dict(orient="records")
-            ]
-        else:
-            tile_edges = []
-        total_edge_count += len(tile_edges)
-
-        # Neighbor nodes: edge destinations outside this municipality
-        muni_node_ids = set(node_grp["node_id"])
-        neighbor_ids = {
-            r["dest_id"]
-            for r in tile_edges
-            if not r.get("intra_node") and r.get("dest_id") not in muni_node_ids
-        }
-        neighbor_nodes = []
-        for nid in neighbor_ids:
-            if nid in node_lookup:
-                info = node_lookup[nid]
-                neighbor_nodes.append({
-                    "node_id": nid,
-                    "lat":     clean_val(info.get("lat")),
-                    "lon":     clean_val(info.get("lon")),
-                    "source":  clean_val(info.get("source")),
-                })
-
-        # Continuity
-        continuity = build_continuity_dict(cont_by_muni, municity)
-
         # Road-distance accessibility for the institutions in this tile (S2b).
         tile_access = {}
         tile_nearest = {}
@@ -417,13 +358,10 @@ def main():
                 tile_nearest[nid] = nr
 
         tile = {
-            "meta":           meta,
-            "nodes":          tile_nodes,
-            "access":         tile_access,
-            "nearest":        tile_nearest,
-            "edges":          tile_edges,
-            "neighbor_nodes": neighbor_nodes,
-            "continuity":     continuity,
+            "meta":    meta,
+            "nodes":   tile_nodes,
+            "access":  tile_access,
+            "nearest": tile_nearest,
         }
 
         # Nothing mojibaked may reach a tile. S1 repairs it at ingest; this is the
@@ -446,8 +384,7 @@ def main():
         if n_written % 300 == 0:
             print(f"  {n_written:,} / {len(muni_groups):,} tiles written…")
 
-    print(f"  {n_written:,} tiles written  ({total_edge_count:,} total edges, "
-          f"{total_access_pairs:,} road-distance accessibility pairs)")
+    print(f"  {n_written:,} tiles written  ({total_access_pairs:,} road-distance accessibility pairs)")
 
     # --- Admin index ---
     print("\nBuilding admin_index.json…")
@@ -524,7 +461,7 @@ def main():
         "created_at": datetime.now(timezone.utc).isoformat(),
         "tiles_dir": str(tiles_dir),
         "total_tiles": n_written,
-        "total_edge_rows_in_tiles": total_edge_count,
+        "total_access_pairs_in_tiles": total_access_pairs,
         "elapsed_s": round(elapsed, 1),
     }
     manifest_path = tiles_dir / "_s6_manifest.json"

@@ -171,7 +171,7 @@ const sliderFor = (p, label) =>
 
     await T("T1.1", "Landing card renders; Explore disabled; 3 sectors On", async () => {
       const txt = await p.locator("body").innerText();
-      assert(/Ugnay/.test(txt) && /Educational Pathway Explorer/.test(txt), "title/subtitle missing");
+      assert(/Ugnay/.test(txt) && /Education Institutions Map/.test(txt), "title/subtitle missing");
       const on = await p.getByRole("button", { name: /\bOn$/ }).count();
       assert(on === 3, `expected 3 sector toggles On, got ${on}`);
       const enabled = await p.getByRole("button", { name: /Explore map/ }).isEnabled();

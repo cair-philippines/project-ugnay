@@ -1,7 +1,7 @@
 name: Deploy Ugnay to Firebase Hosting
 
 # Ugnay is a static SPA + static data (tiles/boundaries). This workflow rebuilds
-# the frontend from the pushed source, pulls the (gitignored, ~180 MB) data
+# the frontend from the pushed source, pulls the (gitignored, ~74 MB) data
 # artifacts from GCS, stages them into dist/, and deploys to Firebase Hosting.
 #
 # Auth: a single service account (ugnay-deployer) does both jobs — reads the GCS
@@ -9,7 +9,7 @@ name: Deploy Ugnay to Firebase Hosting
 # repo secret.
 #
 # The data artifacts rarely change (only when the pipeline reruns), so they are
-# cached across runs; a UI-only push therefore skips the 173 MB GCS pull. When you
+# cached across runs; a UI-only push therefore skips the ~74 MB GCS pull. When you
 # re-seed the bucket with new artifacts, bump the ARTIFACT_VERSION repo variable
 # (Settings -> Secrets and variables -> Actions -> Variables) to invalidate the cache.
 
@@ -64,12 +64,15 @@ jobs:
       #        bump and the cache served the old tiles, so every institution rendered "not on
       #        this pathway" and the readout showed 0 · 0 · 0. Re-seeding the bucket is not
       #        enough on its own — this key is what makes CI actually go and fetch it.
+      #   r4 (2026-07-13) — tiles slimmed 183.2 MB -> 73.9 MB: the S3 `edges` payload (72.6%
+      #        of every tile, never read, and on haversine distances), `neighbor_nodes` and
+      #        S4's `continuity` are all gone. SPECS §A6.
       - name: Cache data artifacts
         id: artifact-cache
         uses: actions/cache@v4
         with:
           path: output
-          key: ugnay-artifacts-${{ vars.ARTIFACT_VERSION || 'v1' }}-r3
+          key: ugnay-artifacts-${{ vars.ARTIFACT_VERSION || 'v1' }}-r4
 
       - name: Pull tiles + boundaries from GCS
         if: steps.artifact-cache.outputs.cache-hit != 'true'

@@ -13,7 +13,7 @@
 
 ## 0. TL;DR
 
-Ugnay is a **static single-page app + static JSON data** — there is **no live backend**. Deploying means: build the frontend to `dist/`, place the pipeline's data artifacts alongside it under `/tiles/` and `/boundaries/`, and serve the whole thing from Firebase Hosting at a public URL (`ugnay.cair.ph` per the plan). The only genuinely tricky parts are (a) getting the ~180 MB of data artifacts to the deploy — they are **gitignored** and need OSRM to regenerate, so a plain CI runner can't build them — and (b) choosing a Firebase plan/data-hosting split that fits the transfer profile.
+Ugnay is a **static single-page app + static JSON data** — there is **no live backend**. Deploying means: build the frontend to `dist/`, place the pipeline's data artifacts alongside it under `/tiles/` and `/boundaries/`, and serve the whole thing from Firebase Hosting at a public URL (`ugnay.cair.ph` per the plan). The only genuinely tricky parts are (a) getting the ~74 MB of data artifacts to the deploy — they are **gitignored** and need OSRM to regenerate, so a plain CI runner can't build them — and (b) choosing a Firebase plan/data-hosting split that fits the transfer profile.
 
 ---
 
@@ -55,9 +55,9 @@ So in the deployed hosting root, the layout must be:
     └── municipal_boundaries.geojson
 ```
 
-**Sizes (current build):** `output/tiles/` ≈ **173 MB** across **1,666 files** (largest single tile ≈ 6.9 MB, median ≈ 32 KB); `output/boundaries/` ≈ **9.6 MB** (2 files). No PII — institution coordinates + offerings only, so a fully public URL is fine.
+**Sizes (current build):** `output/tiles/` ≈ **73.9 MB** across **1,666 files** (largest single tile ≈ 1.7 MB, median ≈ 23 KB) — slimmed from 183 MB by SPECS §A6, which dropped three payloads nothing read; `output/boundaries/` ≈ **9.6 MB** (2 files). No PII — institution coordinates + offerings only, so a fully public URL is fine.
 
-**Important transfer nuance:** a user session does **not** download all 173 MB. The app lazy-loads only the tiles for the municipalities the planner drills into (usually a few KB–few MB), plus one boundary file. The 173 MB is the *corpus* size (matters for storage and total egress across many users), not per-session cost.
+**Important transfer nuance:** a user session does **not** download all 74 MB. The app lazy-loads only the tiles for the municipalities the planner drills into (usually a few KB–few MB), plus one boundary file. The 73.9 MB is the *corpus* size (matters for storage and total egress across many users), not per-session cost.
 
 ---
 
@@ -73,7 +73,7 @@ cp -r ../../output/boundaries dist/boundaries         # MISSING — add this
 # dist/ is now the complete hosting root
 ```
 
-**⚠️ Where do the artifacts come from in CI?** This is the key decision. `output/**` is **gitignored** (correctly — 180 MB shouldn't live in git), so a fresh `git clone` on a GitHub Actions runner will **not** have the tiles/boundaries, and it **cannot regenerate them** — S2b needs a running **OSRM** server and the four source coordinate parquets, neither of which exist on a vanilla runner. Options to resolve:
+**⚠️ Where do the artifacts come from in CI?** This is the key decision. `output/**` is **gitignored** (correctly — tens of MB shouldn't live in git), so a fresh `git clone` on a GitHub Actions runner will **not** have the tiles/boundaries, and it **cannot regenerate them** — S2b needs a running **OSRM** server and the four source coordinate parquets, neither of which exist on a vanilla runner. Options to resolve:
 - **(A) Deploy from a machine that already has `output/`** (e.g. the workstation that ran the pipeline) — simplest for the demo; `firebase deploy` from there.
 - **(B) Sync artifacts from GCS in CI** — a CI job authenticates to GCS, pulls `tiles/` + `boundaries/`, then deploys. Cleanest for repeatable CI. **This is exactly how `platform_aral` solved the same problem:** its gitignored analytics parquets live in `gs://ecair-aral-platform-snapshots/`, kept current with `gcloud storage rsync -r <local> gs://…`, and the GitHub Actions workflow downloads them **before** the build so they're baked into the deploy. Mirror it: create a bucket in `ecair-eics-project` (e.g. `gs://ecair-ugnay-tiles/`), `rsync` `output/tiles` + `output/boundaries` into it after each pipeline run, and have CI pull from it before `firebase deploy`.
 - **(C) Store artifacts in a deploy branch / release asset** and have CI fetch them.
@@ -123,7 +123,7 @@ ARAL is the sister project with a working `cair-philippines` → GCP deploy. Wha
 
 ## 5. Plan / cost
 
-- **Spark (free) plan** caps egress at ~360 MB/day. Because sessions lazy-load only a few tiles, light pilot use may fit — but a few planners exploring dense regions can exceed it, and the 173 MB corpus exceeds nothing storage-wise (Spark gives 10 GB). **Blaze (pay-as-you-go)** is the safer choice for a public URL with unknown traffic; cost at this scale is negligible.
+- **Spark (free) plan** caps egress at ~360 MB/day. Because sessions lazy-load only a few tiles, light pilot use may fit — but a few planners exploring dense regions can exceed it, and the 74 MB corpus exceeds nothing storage-wise (Spark gives 10 GB). **Blaze (pay-as-you-go)** is the safer choice for a public URL with unknown traffic; cost at this scale is negligible.
 - **Alternative for the tile corpus:** serve `tiles/` + `boundaries/` from a **Cloud Storage bucket behind a CDN** and keep only the SPA on Hosting. Decouples data egress from Hosting quotas and is a natural fit since artifacts already live in GCS. Trade-off: the fetch base changes from `/tiles` to an absolute bucket/CDN URL, so the frontend's `TILES_BASE` / `FILES` constants (currently hardcoded to `/tiles` and `/boundaries`) would need to read from an env-configurable base. Decide this before wiring CI.
 
 ---

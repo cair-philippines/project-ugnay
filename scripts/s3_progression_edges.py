@@ -3,6 +3,20 @@
 S3 — Progression edges: apply relational rules to distance pairs and
 produce the base progression edge table for the platform graph.
 
+⚠️ SUPERSEDED (2026-07-13) — DO NOT USE THESE DISTANCES.
+--------------------------------------------------------
+This stage's cross-sector distances (SHS→HEI, SHS→TESDA, TESDA→TESDA) come from
+`pairs_xsector.parquet`, which is from the HAVERSINE era: they are straight lines, not
+roads. Only 53% of pairs within 5 km as the crow flies are still within 5 km once you
+have to drive it, so these edges systematically overstate what is reachable.
+
+`scripts/s7_progression_chains.py` replaces this for everything user-facing. It builds the
+same edges from `pairs_access.parquet` (OSRM, door-to-door) and also walks the chain.
+
+S6 no longer ships this table to the browser — it was 72.6% of every tile's bytes and
+nothing read it. This script and S4 still run, but their outputs now feed nothing that a
+planner sees. Rebuild them on S2b distances before trusting them again. See SPECS §A6.
+
 Reads:
   output/nodes/institutions.parquet        (S1)
   output/graph/pairs_basic.parquet         (S2)

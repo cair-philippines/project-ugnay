@@ -3,6 +3,20 @@
 S4 — Pathway-continuity metrics: per-node reachability and per-area
 continuity rollups at municipal, provincial, and regional levels.
 
+⚠️ SUPERSEDED (2026-07-13) — THESE PERCENTAGES ARE NOT ROAD DISTANCES.
+----------------------------------------------------------------------
+Every number here is derived from S3's edge table, whose cross-sector distances are
+straight lines from the haversine era. A "continuity %" computed on them overstates
+reachability, because only ~53% of pairs within 5 km as the crow flies survive the drive.
+
+S6 no longer ships these rollups into the tiles, and their only consumer (ContinuityPanel)
+was never mounted. The network view now answers the same question honestly, from S7's
+road-distance chain walk — and it answers a strictly stronger version of it, since S4 only
+ever measured whether the NEXT step was reachable, not whether the pathway ever ends
+anywhere.
+
+Rebuild on S2b/S7 before trusting these files again. See SPECS §A6.
+
 Reads:
   output/nodes/institutions.parquet      (S1)
   output/graph/progression_edges.parquet (S3)

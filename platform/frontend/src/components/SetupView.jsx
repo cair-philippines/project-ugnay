@@ -55,7 +55,7 @@ function Preamble({ compact = false }) {
     >
       <div className="flex items-baseline gap-2.5 flex-wrap">
         <span className={`${title} font-bold tracking-tight`}>Ugnay</span>
-        <span className="text-xs sm:text-sm text-blue-200/70">Educational Pathway Explorer</span>
+        <span className="text-xs sm:text-sm text-blue-200/70">Education Institutions Map</span>
       </div>
 
       <p className={`mt-3 ${lead} leading-relaxed text-blue-50`}>
