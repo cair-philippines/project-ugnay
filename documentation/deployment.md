@@ -13,7 +13,7 @@ Ugnay is a **static SPA + static JSON data** — no backend, no database, no ser
 | Piece | Source | Served path |
 |---|---|---|
 | Frontend SPA | `platform/frontend/` → `npm run build` → `dist/` | `/` (`index.html`, `/assets/*`) |
-| Tiles (1,666 files, ~173 MB) | pipeline S6 → `output/tiles/` | `/tiles/*.json` + `/tiles/admin_index.json` |
+| Tiles (1,666 files, **~74 MB**) | pipeline S6 → `output/tiles/` | `/tiles/*.json` + `/tiles/admin_index.json` |
 | Boundaries (2 files, ~9.6 MB) | pipeline S6.3 → `output/boundaries/` | `/boundaries/*.geojson` |
 
 - **GCP / Firebase project:** `ecair-eics-project` (project number `194721030885`), employer billing attached. Firebase Hosting default site `ecair-eics-project` → `ecair-eics-project.web.app`.
@@ -76,12 +76,21 @@ Getting a live URL is outward-facing. In an automated environment, `firebase dep
 
 **Trigger:** push to `main` touching `platform/frontend/**`, `platform/prepare_deploy.sh`, `firebase.json`, `.firebaserc`, or the workflow file — plus manual `workflow_dispatch`. **Docs-only commits do not deploy.**
 
-**Steps:** checkout → setup-node (npm cache) → `google-github-actions/auth` (SA) → setup-gcloud → cache `output/` → (on cache miss) `gcloud storage rsync` tiles+boundaries from `gs://ecair-ugnay-tiles/` → `bash platform/prepare_deploy.sh` → `npx firebase-tools@15 deploy --only hosting`.
+**Steps:** checkout → setup-node (npm cache) → `google-github-actions/auth` (SA) → setup-gcloud → cache `output/` → (on cache miss) `gcloud storage rsync` tiles+boundaries from `gs://ecair-ugnay-tiles/` → `bash platform/prepare_deploy.sh` → **two gates** → `npx firebase-tools@15 deploy --only hosting`.
+
+**The two gates, and why each exists.** Both are cheap; both are there because the thing they check *shipped broken once*.
+
+| Gate | Runs on | Guards against |
+|---|---|---|
+| `scripts/check_tile_contract.mjs` | `platform/frontend/dist/tiles` — the **staged artifact**, not `output/`, because `prepare_deploy.sh` has itself had bugs and only checking what actually ships catches that | Tiles the frontend cannot read. The Network view once went out ahead of its tiles: `academic_applies` was `undefined`, so all 3,825 institutions silently read *"not on this pathway"* and the readout showed `0 · 0 · 0`. **Build green, deploy green, and the product quietly asserting no school in the country has a broken pathway.** Checks structure → type/range → **signal** (a pipeline emitting `applies:false` for every node would pass a naive presence check and still be worthless). ~13 s on the full 1,664-tile corpus. |
+| `scripts/check_copy.mjs` | `platform/frontend/src` | Em dashes in rendered text (the clearest tell that a sentence was machine-written) and British spelling. The app was shipping **"Colour by sector" directly above "Colorblind-safe palette"** — same panel. |
+
+⚠️ **A DATA change needs BOTH a bucket re-seed AND an `ARTIFACT_VERSION` bump.** Miss the bump and CI restores the *cached* `output/` and silently ships stale tiles — the contract gate is what now catches the specific case where that leaves the frontend without its fields, but it cannot catch stale-but-valid data. See §5.3.
 
 **Pieces (one-time setup, done):**
 - **GCS bucket** `gs://ecair-ugnay-tiles/` (subdirs `tiles/`, `boundaries/`), region `asia-southeast1`, seeded with the current artifacts. SA `ugnay-deployer` has **Storage Object Admin** on it.
 - **GitHub secret** `FIREBASE_SERVICE_ACCOUNT` = the full SA key JSON.
-- **Artifact cache** keyed on repo variable `ARTIFACT_VERSION` (default `v1`) so UI-only pushes skip the 173 MB pull.
+- **Artifact cache** keyed on repo variable `ARTIFACT_VERSION` (default `v1`) so UI-only pushes skip the ~74 MB pull. (It was 173 MB until SPECS §A6 dropped the unread S3/S4 payloads.)
 
 **Verified:** pushes produced new Hosting releases and served the complete contract.
 

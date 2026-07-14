@@ -25,9 +25,9 @@ The country has coordinates for roughly 66,000 education institutions, but they 
 
 ## The question the map cannot answer
 
-A map asks *is there a next level nearby?* — and that question flatters reality. Adams Central Elementary has a junior high **0.76 km** away, so on the map it looks fine. Its nearest university is **63 km** away and its nearest TESDA centre **44 km**: a learner starting there cannot finish **any** pathway. Nationwide, **19,934 institutions have a perfectly good next step and can never reach higher ed.**
+A map asks *is there a next level nearby?* — and that question flatters reality. Adams Central Elementary has a junior high **0.76 km** away, so on the map it looks fine. Its nearest university is **63 km** away and its nearest TESDA center **44 km**: a learner starting there cannot finish **any** pathway. Nationwide, **19,934 institutions have a perfectly good next step and can never reach higher ed.**
 
-Finding them means walking the whole chain — ES → JHS → SHS → higher ed, and SHS → tech-voc training → assessment — and the two pathways are tracked separately, because a school that can reach a training centre but no university is complete on one and cut on the other.
+Finding them means walking the whole chain — ES → JHS → SHS → higher ed, and SHS → tech-voc training → assessment — and the two pathways are tracked separately, because a school that can reach a training center but no university is complete on one and cut on the other.
 
 The **Network view** drops geography and lets a force layout place institutions by their connections instead. An institution whose pathway goes nowhere has nothing pulling it inward, so it drifts to the edge and you find it without being told where to look.
 
@@ -39,9 +39,9 @@ A batch pipeline turns four coordinate datasets into small per-area map tiles th
 |---|---|
 | **S1** | Assemble ~66K institutions from the four sectors into one table with capability tokens (offers ES/JHS/SHS, is HEI, is TESDA trainer/assessor). |
 | **S2 / S2b** | Route distances through **OSRM** (OpenStreetMap road network). `S2b` computes door-to-door road distance for every pair within reach — the numbers the map draws. |
-| **S3 / S4** | Derive progression edges and per-institution / per-area gap metrics. |
+| **S3 / S4** | Derive progression edges and per-area gap metrics. ⚠️ **Superseded** — their cross-sector distances are straight lines, and they no longer ship to the browser (SPECS §A6). Rebuild on S2b/S7 before trusting them. |
 | **S6** | Slice everything into one JSON tile per municipality (+ an area index and cleaned admin boundaries) — the served artifact. |
-| **S7** | Walk the whole progression chain — can a learner starting here actually *reach* a university, or an assessment centre? Answered nationwide, because a chain can leave the area you are looking at. |
+| **S7** | Walk the whole progression chain — can a learner starting here actually *reach* a university, or an assessment center? Answered nationwide, because a chain can leave the area you are looking at. |
 
 The frontend is a **Vite + React + MapLibre** app that reads those tiles, with the Network view drawn on a canvas and its force layout run in a worker (`d3-force`). Every distance it shows is a precomputed road distance; institutions plotted off the road network are flagged so a bad coordinate never masquerades as a real gap.
 
@@ -53,11 +53,20 @@ Roughly 66,000 institutions: ~47.6K DepEd public, ~8.3K DepEd private, ~2.4K CHE
 scripts/         Pipeline stages (s1…s7, s2b, boundary cleaning)
 modules/         Shared pipeline logic (OSRM client, distance lookup, aggregation)
 platform/frontend/   The web app (Vite + React + MapLibre)
-tests/e2e/       Playwright runner for TESTS.md (41 browser scenarios)
+tests/e2e/       Playwright runner for TESTS.md (56 browser scenarios)
 .github/workflows/   Push-to-`main` deploys the frontend to Firebase Hosting
 documentation/   Design and decision records (see below)
 output/          Generated data — tiles, boundaries, matrices (gitignored)
 ```
+
+## Guardrails in CI
+
+Every push to `main` runs these before it can deploy. Each one exists because the thing it checks **shipped broken once**:
+
+| Check | Guards against |
+|---|---|
+| `scripts/check_tile_contract.mjs` | Tiles the frontend cannot read. It once deployed a frontend ahead of its data, so every institution silently read "not on this pathway" and the readout showed `0 · 0 · 0` — **a confident graph of nothing.** Checks structure → types/ranges → *signal* (all-`false`, or zero completions, would pass a naive presence check and still be worthless). |
+| `scripts/check_copy.mjs` | Em dashes in rendered text (they read as machine-written) and British spelling. The app was shipping "Colour by sector" directly above "Colorblind-safe palette", in the same panel. |
 
 ## Documentation
 

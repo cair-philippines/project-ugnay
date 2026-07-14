@@ -195,41 +195,32 @@ Frontend rebuild ran in **parallel** from Jul 9 against the M2 JSON schema (§6 
      "hei_sector":null, "hei_is_public":null,
      "tesda_role_provider":false, "tesda_role_assessment":false,
      "esc_participating":false, "shsvp_participating":false, "jdvp_participating":false,
-     "source_vintage":"...", "road_unreliable":false}
+     "source_vintage":"...", "road_unreliable":false,
+     "academic_applies":true, "academic_min_km":3,
+     "techvoc_applies":true, "techvoc_min_km":0}
   ],
   "access": {
     "pub:..": [["pub:..", 670], ["prv:..", 1240]]
   },
   "nearest": {
     "pub:..": {"jhs":0.67, "shs":0.67, "hei":63.44, "tesda_training":44.05}
-  },
-  "edges": [
-    {"origin_id":"pub:..","dest_id":"hei:..","transition":"SHS_HEI",
-     "distance_km":3.7,"intra_node":false}
-  ],
-  "neighbor_nodes": [
-    {"node_id":"hei:..","lat":..,"lon":..,"source":"hei"}
-  ],
-  "continuity": {
-    "ES_JHS": {"1":{"n_origins":..,"n_reachable":..,"continuity_pct":..,"band_label":"most"},
-               "2":{...}, "3":{...}, "4":{...}, "5":{...}},
-    "JHS_SHS":{...}, "SHS_HEI":{...}, "SHS_TESDA_prov":{...},
-    "HEI_TESDA_prov":{...}, "TESDA_prov_assess":{...}
   }
 }
 ```
+> ⚠️ **`edges`, `neighbor_nodes` and `continuity` are GONE** (2026-07-13, SPECS §A6). Nothing in the frontend ever read them, `edges` alone was **72.6% of every tile**, and their cross-sector distances were **haversine straight lines** — stale numbers *sitting in the product* are a trap waiting for someone to believe them. Tiles went **183.2 MB → 73.9 MB**. **A tile is now exactly four keys: `meta`, `nodes`, `access`, `nearest`.**
 Notes:
 - **`access`** (added 2026-07-12, S2b) = the ROAD-distance accessibility adjacency the frontend draws on click: `origin_id → [[dest_id, metres], …]`, sorted nearest-first, filtered to destinations offering a capability the origin lacks (token rule). Integer metres (a third the JSON size of float km). Destinations may live in other tiles; the client only draws to loaded, visible nodes.
 - **`nearest`** (added 2026-07-12, S2b) = `node_id → {level: road_km}` for each level the node lacks, **unbounded/nationwide**. Drives the drawer's "nearest of each level" and the gap halos.
 - **`road_unreliable`** (node field, added 2026-07-12) = institution sits >2 km from any mapped road (usually a broken coordinate); the frontend suppresses its gap halo.
 - **`hei_sector`** (raw CHED class: `SUC Main/Satellite`, `LUC…`, `Private Sectarian/Non-Sectarian`) and derived **`hei_is_public`** (bool) were added 2026-07-11 to drive the higher-ed public/private filter.
-- `neighbor_nodes` = edge endpoints outside this municipality (coords only), so cross-boundary edges render.
-- Transition keys use `SHS_TESDA_prov` / `HEI_TESDA_prov` / `TESDA_prov_assess` (underscore form). `edges`/`continuity` remain the PROGRESSION graph (S2/S3); the accessibility feature reads `access`/`nearest`.
+- **`{academic,techvoc}_{applies,min_km}`** (node fields, added 2026-07-13, **S7** — SPECS §A5) = the **chain verdict**. `min_km` is the smallest threshold (km) at which the pathway from this institution actually *closes*; **`0` means never**, so the frontend tests `0 < min_km <= thresholdKm`. `applies` says whether the institution is even *on* that pathway (an assessment center has no academic verdict, an HEI no tech-voc one) — that is **N/A, not a gap**, and must never be painted as a failure.
+  - This is **the one thing the browser cannot derive**: a chain can walk clean out of the loaded area, so it is computed nationwide in the pipeline. **Progression *edges* ship as zero extra bytes** — a level you need next is by definition a level you lack, so every progression edge is already inside `access`, and the frontend derives them.
+  - ⚠️ **A tile without these fields is a stale artifact, not an institution that is off-pathway.** Confusing the two shipped once: `academic_applies` came back `undefined`, which is falsy, so every institution silently read "not on this pathway" and the readout showed `0 · 0 · 0` — a confident graph of nothing. The contract is declared once in `platform/frontend/src/lib/tileContract.js` and enforced in CI by `scripts/check_tile_contract.mjs`. **Add a field the frontend needs → add it there.**
 
 ### 6.2 Index (`admin_index.json`)
 `{regions:[{region, provinces:[{province, municipalities:[{municity_psgc, name}]}]}], total_tiles, created_at}` — canonical PSGC names (§3 S6).
 
-**Client responsibilities (not the pipeline's):** band filtering (1–5 km via `access[][1]` metres), sector-layer + subcategory toggling (via `nodes[].source` + `offers_*` / `hei_is_public` / `tesda_role_*`), plain-language rendering of `continuity[].band_label`. See `frontend_design.md`.
+**Client responsibilities (not the pipeline's):** band filtering (1–5 km via `access[][1]` metres), sector-layer + subcategory toggling (via `nodes[].source` + `offers_*` / `hei_is_public` / `tesda_role_*`), and **deriving the progression edges** for the Network view from `access` + the token rule. See `frontend_design.md` §5B.
 
 ---
 

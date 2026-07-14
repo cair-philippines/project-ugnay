@@ -432,7 +432,7 @@ Chasing it produced two constraints that now bind anything animated on this map.
 
 **Round 8 (2026-07-12) — shipped, then caught by the first real E2E run.**
 - **The zoom-IN button was unclickable in production.** The new re-center / hide-UI stack sat at `bottom-20`, directly on top of it: the "+" was hidden and every click on it hit the hide-UI button. Moved to `bottom-32` (16px of clearance). No `curl` check could have seen this — it took a browser hit-test. §4, **T10.4**.
-- **`tests/e2e/`** added: a Playwright runner for `TESTS.md` (now 41 scenarios), plus the four traps that make map tests *silently lie* — canvas-vs-viewport click coords, `jumpTo()` being inert under react-map-gl's controlled mode, accessible names being the raw DOM text, and province/municipality name collisions. See `TESTS.md`.
+- **`tests/e2e/`** added: a Playwright runner for `TESTS.md` (41 scenarios at the time; **56** today), plus the four traps that make map tests *silently lie* — canvas-vs-viewport click coords, `jumpTo()` being inert under react-map-gl's controlled mode, accessible names being the raw DOM text, and province/municipality name collisions. See `TESTS.md`.
 
 **Round 1 (2026-07-10 → 07-11) — node grammar built.**
 - Two-phase UX (setup → map); sector-layer toggles; edges off by default; basemap toggle; multi-province provincial terminal; median/robust auto-fit.

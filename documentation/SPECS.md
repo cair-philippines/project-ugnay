@@ -100,6 +100,34 @@ Three payloads left the tiles. **Nothing in the frontend read any of them.**
 
 S3 and S4 still run and still write their parquets; they simply no longer reach a planner. Both scripts now carry a ⚠️ header saying so. **Rebuild them on S2b/S7 before trusting those files again.**
 
+### A7 — The network view opens BLANK, and the two views use different grammars (2026-07-14) — **refines A5, refines A4 (map grammar unchanged)**
+
+A5 settled *what* the network view computes. It did not settle how it should read, and the first build got that wrong: it spent **fill** on the verdict while shape and a hairline ring carried the sector, so every mark encoded two orthogonal things at once, and all three verdicts were painted at all times — the view answered three questions before the user had asked any of them. A settled province read as noise.
+
+**Resolved grammar.** Fill carries the **sector**, using the *same colours as the map* (A4's grammar is unchanged and now agrees across both views). The **verdict is a highlight**, not a fill.
+
+**Nothing is on by default.** The graph opens deliberately grey. That is not an empty state — the clusters and the loose dots *are* the structure, and it is legible before any filter is touched. The filters are the question; an unasked question should not be answered.
+
+| Control | Behaviour | Why |
+|---|---|---|
+| **Verdict** (cut / dead-end / complete) | **Highlights** matching institutions and **dims the rest to 28%** | The claim is that cut institutions sit on the **rim** of the structure. A rim is only visible against what it is a rim *of*, so the field must recede, never vanish. |
+| **Sector** (3 groups, 5 fill buckets) | **Colours**; it does **not** hide | See below. |
+| **Threshold** | Redraws every edge **and** every verdict | It defines what one *step* is, so it outranks the other controls and sits at the top of the panel. |
+
+**The network ignores the map's sector filters and always graphs the whole loaded area.** The map's filters answer *what do I want to look at*; the network answers *what does the structure look like* — and a structure with pieces missing is not a quieter answer to that, it is a **wrong** one. A learner's pathway runs through a TESDA centre whether or not the user has TESDA switched on. The map's sector toggles are therefore **hidden** in the network view rather than left there doing nothing.
+
+**Map ⇄ Network is a morph, not a swap.** The force layout is *seeded from the map's live projection*, so frame zero of the network is pixel-for-pixel the map; leaving folds the graph back down onto the map's own pins. The seed is also a far better initial condition than d3's spiral, so it settles in fewer ticks. → `frontend_design.md` §5B, §5B.5b.
+
+### A8 — Coordinates can be plausible and still wrong (2026-07-14) — **new data-quality finding; adds to Appendix B**
+
+**~115 institutions nationwide (0.17%) carry a coordinate that falls in a *different province* than the one they are assigned to.** "Sun Yat Sen High School **of Iloilo**" plots in Metro Manila. "St. Elizabeth Montessori **of Baguio**" plots in Metro Manila. A Quezon City school plots in Mindanao.
+
+These are **not** the same class of error as `road_unreliable` (a node that cannot snap to the road network — several sit in open sea). It catches only **20%** of them, because a wrong-province point snaps to a road perfectly well; it is just the wrong road. Detection is a two-line check: **full extent ÷ the 2–98% percentile box, per province**. On that test, **64 of 115 provinces** contain at least one, and Quezon City's full extent is **66× wider** than the box holding 96% of its schools.
+
+**Consequence for the product: anything that fits a camera to institutions must use robust (percentile/trimmed) bounds.** The map always did; the network view did not, and a single stray rendered a whole province into a **46×49 px smudge**. Fixed in the view (`frontend_design.md` §5B.5b).
+
+**The records themselves are still wrong.** Ugnay only defends against them. They are a genuine finding to hand back to **project_coordinates**, where the fix belongs.
+
 ---
 
 ## 1. Product & UX
@@ -467,6 +495,9 @@ Deployment target, hosting, CI/CD, and cost are deferred to a separate ops docum
 - ID harmonization — ✅ resolved (§2.6): sector-prefixed composite node id (`pub:`/`prv:`/`hei:`/`tesda:`); null-`uii_code` HEIs (109) get a deterministic `name`+PSGC surrogate.
 - **Data-vintage strings** — must be captured from project_coordinates (not in the gold files) and carried into the pipeline for per-layer display (§2.0, item #8).
 - **TESDA qualification-family mapping** — pipeline must derive a family/sector grouping from the free-text `program` field for provider→assessment edges (§2.7, item #5).
+
+**Data-quality debts (carry to project_coordinates)**
+- **~115 institutions sit in the wrong province** (A8). Plausible coordinates, wrong place; `road_unreliable` catches only 20% of them. Ugnay defends against them in the view; the **records are still wrong** and want fixing upstream.
 
 **Prototype risks to validate**
 - **Cross-sector distance error**: haversine vs road — measure on a sample to decide the §2.2 upgrade.

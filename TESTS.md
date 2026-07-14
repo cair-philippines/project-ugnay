@@ -244,6 +244,27 @@ Use a small, dense area for speed (e.g. a single municipality) and one large one
 - The fade must start on **`moveend`** of the 800 ms flight. Not on a timer, and not on the data being ready: symbol *placement* runs after the tile JSON parses and blocks the main thread, so a fade started any earlier gets no frames and lands as a single step. Neither obvious gate works — `sourcedata`/`isSourceLoaded("nodes")` fires at ~8 ms (before `setData` is even applied), and `idle` fires 1–1.6 s *after* touchdown because it waits on the basemap CDN.
 - The boundary GeoJSON (3.4 MB provincial / 6.6 MB municipal) must be fetched during **setup**, not at Explore. `res.json()` parses it on the main thread; loading it at Explore time put a ~400 ms stall inside the reveal, during which the browser painted *no frames at all* — which turns any fade into a pop no matter how it is declared.
 
+### T2.5 A cursor resting on the map during the reveal must not kill the map view
+**Why:** this shipped, and it took the whole map view down with **`Failed to execute 'add' on 'DOMTokenList': The token provided must not be empty.`** — intermittently, right after **Explore map**.
+
+MapLibre applies a popup's `className` with `split(" ")` and **no filter** (gotcha 7), so the one trailing space left by `` `ugnay-popup ugnay-popup--hover ${visible ? "" : "--off"}` `` became an empty token and `classList.add("")` threw.
+
+It only detonated when the popup's **first** mount was a *visible* one. That needs the cursor to be over the map as a new area lands — i.e. exactly where the cursor is right after you click Explore. Institutions are held at opacity 0 during the reveal, but **MapLibre still hit-tests them**, so a hover fired for a node that was not on screen yet, and *that hover* (rather than the anchor node) is what first brought the popup into existence.
+
+**Steps:**
+1. Pick an area and click **Explore map →**.
+2. Keep the mouse **moving over the middle of the map** for the whole load + camera flight (~4 s). Do nothing else.
+
+**Expected:**
+- **No error boundary.** `Something broke in the map view` must be absent.
+- The popup's `className` never contains a double or trailing space.
+- The institutions render.
+
+**What to check if broken:**
+- Never build a MapLibre `className` by interpolating a possibly-empty string. Join a filtered array.
+- Nothing should be hoverable while `revealed` is false — a tooltip for a node the user cannot see yet is wrong on its own merits.
+- **This is invisible to a console-error check** (gotcha 6): the ErrorBoundary catches the throw, so there is no `pageerror`. Assert the boundary is *absent*.
+
 ---
 
 ## T3 — Map Render & Boundaries (SPECS §1.5)
