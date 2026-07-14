@@ -7,7 +7,75 @@ details: `documentation/deployment.md`.
 
 ---
 
-## 2026-07-13 (latest) — the reveal *really* fades: fade → vanish → pop
+## 2026-07-13 (latest) — progression returns, as a network; and a graph of nothing
+
+The map asks a **one-hop** question — *is there a next level nearby?* — and that question
+**flatters reality**. Adams Central Elementary has a junior high **0.76 km** away, so its gap
+halo is clean. Its nearest university is **63 km** away and its nearest TESDA centre **44 km**:
+a learner starting there can finish **no pathway at all**.
+
+> Nationwide, one-hop "cut" at 5 km is **22.7%**. **Chain-incomplete is 48.7%.**
+> **19,934 institutions have a perfectly good next step and can never reach higher ed.**
+> ~1,600 clusters (~8,500 institutions) are richly connected internally and contain **no HEI
+> and no assessment centre anywhere inside them**.
+
+### Added
+- **S7 — `scripts/s7_progression_chains.py`** (4 s). Reverse-BFS from each pathway's terminal,
+  nationwide, at every slider threshold, over S2b road distances. Ships four fields per node:
+  `{academic,techvoc}_{applies,min_km}`. **The one thing the browser cannot derive** — a chain
+  can walk clean out of the loaded area. The *edges* stay client-derived, since a level you
+  need next is by definition a level you lack. → SPECS §A5
+- **The Network view** — progression as a force-directed graph, **off the map**. Geography is
+  dropped on purpose: on a map, position is spent on coordinates, so a school with no onward
+  pathway looks exactly like one with a perfect pathway. Here **position is the structure** — a
+  stranded institution has nothing pulling it inward and drifts to the edge. `d3-force` on a
+  canvas in a worker; no deck.gl, no graph DB. → `frontend_design.md` §5B
+- **Two pathways, tracked separately** (academic → higher ed; tech-voc → assessment centre). An
+  SHS that reaches a training centre but no university is tech-voc complete and academic cut;
+  one merged verdict would hide **which door is shut**.
+- **Mobile chrome** for the Network view: legend becomes a tab in the existing bottom sheet
+  (and it is the legend for the view you are *in* — the two grammars differ). **Pinch-zoom had
+  to be hand-built**: `touch-action: none` is required so a drag doesn't scroll the page, and it
+  also kills native pinch. → §5B.7
+
+### Fixed — *the graph of nothing*
+The Network view shipped to production while the GCS bucket still held **pre-S7 tiles**.
+`academic_applies` came back `undefined`, which is falsy, so all **3,825** institutions on
+screen were reported *"not on this pathway"* and the readout showed **0 · 0 · 0**. Build green,
+deploy green — and the product silently asserting that no school in the country has a broken
+pathway, the exact opposite of what it exists to say. **It looked finished.**
+
+The defect was not the missed upload. It was that **the contract between the pipeline and the
+frontend was never written down, so nothing could check it.**
+- **`platform/frontend/src/lib/tileContract.js`** — the contract, declared **once**, read by
+  **both** sides.
+- **`scripts/check_tile_contract.mjs`** — a CI gate that refuses the deploy. It runs on `dist/`
+  **after** staging, because `dist/` is what ships (and `prepare_deploy.sh` has had its own
+  bugs). It checks structure → type/range → **signal**: a pipeline emitting `applies: false`
+  for every institution, or `min_km: 0` for every one, would pass a presence check perfectly and
+  still be worthless.
+- The browser now **fails loudly** on stale tiles (violet graph + banner) instead of rendering
+  confident zeros.
+
+### Changed
+- **Tiles slimmed 183.2 MB → 73.9 MB (-60%).** Worst tile (NCR) **6.9 MB → 1.7 MB**. Dropped
+  three payloads **nothing read**: `edges` (S3 — **72.6% of every tile**, and on *haversine*
+  distances), `neighbor_nodes`, `continuity` (S4 — same stale distances). Dead weight nobody
+  reads is waste; stale numbers sitting **in** the product are a trap. → SPECS §A6
+- **S3 and S4 are superseded** and now say so in their headers. Their cross-sector distances are
+  straight lines. SPECS §1.9's area-continuity % is not lost — the Network readout answers it
+  from road distances, and answers a *stronger* version of it.
+- Setup card subtitle → **"Education Institutions Map"**, matching the header.
+
+### Known gaps
+- **The E2E suite has no Network-view coverage.** The 45 scenarios are all map/setup.
+- **T2.4 is genuinely flaky** (~1/3), not a regression — it counts animation frames under a
+  software renderer.
+- TESDA matching is still **role-based only** (M4/S5) → tech-voc completeness is **optimistic**.
+
+---
+
+## 2026-07-13 — the reveal *really* fades: fade → vanish → pop
 
 Reported: after **Explore map**, the map zooms in, the nodes fade in, then **disappear**, then
 **re-appear with a pop**. Two independent causes, both confirmed by sampling MapLibre's
