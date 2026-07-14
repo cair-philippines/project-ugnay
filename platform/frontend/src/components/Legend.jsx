@@ -113,7 +113,7 @@ export function LegendBody({ sectorColors, nodeShapes, gapVisible, thresholdKm }
           </p>
           <p>
             Road distance is <span className="font-medium text-gray-700">not</span> travel time,
-            cost, or safety, and says nothing about whether anyone actually enrols.
+            cost, or safety, and says nothing about whether anyone actually enrolls.
           </p>
         </div>
       </div>

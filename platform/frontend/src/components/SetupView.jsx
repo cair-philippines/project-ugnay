@@ -85,7 +85,8 @@ function Preamble({ compact = false }) {
           <span>
             <span className="font-semibold text-white">Tap an institution</span> to see what’s
             within reach <span className="whitespace-nowrap">by road</span> that offers
-            something it doesn’t — the next grade, a university, a trade.
+            something it doesn’t — the next grade level, a university, a technical &amp; vocational
+            program.
           </span>
         </li>
         <li className="flex gap-2.5">
