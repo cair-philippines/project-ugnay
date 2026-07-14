@@ -7,7 +7,47 @@ details: `documentation/deployment.md`.
 
 ---
 
-## 2026-07-14 (latest) — the network stops shouting; the map stops flashing
+## 2026-07-14 (later) — one bad coordinate was steering the camera
+
+Two bugs that looked unrelated, and were the same bug: **the force layout was seeded straight
+off the map's projection, and the projection was taken on trust.**
+
+**A stray coordinate squeezed the whole graph.** About **115 institutions nationwide (0.17%)**
+carry a coordinate belonging to a *different province* — "Sun Yat Sen High School **of Iloilo**"
+plots in Metro Manila; "St. Elizabeth Montessori **of Baguio**" plots in Metro Manila; a
+Quezon City school plots in Mindanao. `road_unreliable` catches only 20% of them, because the
+point snaps to a road perfectly well — just the wrong road. **One is enough.** Quezon City's
+full extent is **66× wider** than the box holding 96% of its schools, and the network's
+auto-fit chased the stray: the entire graph rendered into a **46×49 px smudge, 0.2% of the
+canvas**. The map never had this bug, because it fits on percentiles (`robustBounds`). The
+network fit on raw min/max. That was the whole defect.
+
+**And the round-trip through "Show on the map" left a blank canvas.** That flies to zoom 14;
+coming back re-seeded every node off *that* projection, so a province spanned hundreds of
+thousands of pixels. `forceCenter` only recentres the **mean** — it never shrinks the spread —
+and the zoom floor clamps at `0.05`, so the graph could not be framed at *any* zoom. It
+scattered off-screen and no amount of zooming brought it back.
+
+The seed is now **normalised** (rescaled only when the map's framing is grossly wrong — at
+normal zoom the factor is exactly 1, so the unfold stays pixel-perfect) and outliers are
+**clamped** into the core box. The exit morph re-uses the same normalisation. The auto-fit is a
+**trimmed** extent — deliberately a trim and not a percentile crop, because cropping to 2–98%
+would cut the **isolate ring**, and the stranded institutions are the entire point of the view.
+
+Clamping a stray is not a fudge: **in a force layout, position is structure, not place.** A
+wrong coordinate should never have been able to move a node here — it only could because we
+borrowed the map's geometry to start with. Clamped, it seeds into the crowd and the forces put
+it where its *edges* say it belongs.
+
+The **115 bad records are still bad** — this fixes the view, not the data. They are worth
+handing back to `project_coordinates` as a data-quality finding.
+
+**T16 (2 scenarios)** pins both, and both were verified to **fail on the pre-fix build** rather
+than assumed to. Suite is now **55/55**.
+
+---
+
+## 2026-07-14 — the network stops shouting; the map stops flashing
 
 Round 12. The network view shipped legible-in-principle and unreadable-in-practice, and three
 of its defects were the kind that **look like successes**.

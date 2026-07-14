@@ -686,6 +686,17 @@ The network view is the one feature here whose bugs **look like successes**. A g
 | **T15.7** | "Show on the map" unmounts the graph and flies the camera to the institution | An invisible effect is not a feature |
 | **T15.8** | The hover popup is **pre-mounted**, is **never rebuilt** (0 additions across 10 hovers), reaches full opacity, and **never paints in the top-left corner** | MapLibre defers popup DOM writes to its render-task queue, so a popup *created* on hover spends its first frames unpositioned at the container origin. Crossing bare map between two schools rebuilt it every time, strobing a white card in the corner |
 
+## T16 — Network view: strays & the round-trip (frontend_design §5B.5b)
+
+| ID | Asserts | Why it exists |
+|---|---|---|
+| **T16.1** | In **Quezon City** (worst case nationwide) the graph spans **>25% of the canvas** | ~115 institutions carry a coordinate belonging to a *different province*; `road_unreliable` catches only 20% of them (the point snaps to a road fine — the wrong one). One is enough: QC's full extent is **66×** the box holding 96% of its schools, and the auto-fit chased it, rendering the whole graph into a **46×49 px smudge** |
+| **T16.2** | Network → *Show on the map* (flies to z14) → Network **still draws the same graph** | Returning re-seeded every node off the z14 projection. `forceCenter` only recentres the mean — it never shrinks the spread — and the zoom floor clamps at `0.05`, so the graph could not be framed at *any* zoom: blank canvas, unrecoverable |
+
+Both measure **spread**, not ink: a collapsed graph still has pixels, it is just crushed into a corner. Both were **verified to fail on the pre-fix build** (T16.1 reported `0.2%`), not assumed to.
+
+---
+
 **Two traps this section is written to avoid.** A test that is happiest when the feature is absent is not a test: T15.8 asserts a popup *existed* and *became visible*, because without that it passes trivially on a dead feature (it did, once — a prior test had failed and left the run in the wrong view). And the colour thresholds are tuned to the **actual fills** (`#3B82F6`, `#DC2626`), not to "bluish" — the edge grey `(100,116,139)` at low alpha comes back from `getImageData` as `(100,114,141)` after the premultiply round-trip, and a loose `b > 140` test counted every antialiased **edge** as a coloured node.
 
 ---

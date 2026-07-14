@@ -173,26 +173,109 @@ export default function NetworkView({
   // zero of the network is pixel-for-pixel the map the user was just looking at, and the
   // forces visibly pull it apart. It is also a far better initial condition than d3's
   // default spiral (real clusters already start near each other), so it settles sooner.
-  // On a re-layout (the threshold moved) the seed is the CURRENT layout, so the graph is
-  // nudged rather than detonated.
-  const seedFor = useCallback(
-    (list) => {
-      const prev = posRef.current;
-      const out = new Float32Array(list.length * 2);
-      const warm = prev && prev.length === out.length;
-      for (let i = 0; i < list.length; i += 1) {
-        if (warm) {
-          out[i * 2] = prev[i * 2];
-          out[i * 2 + 1] = prev[i * 2 + 1];
+  //
+  // BUT A PROJECTION IS NOT AUTOMATICALLY A SANE SEED, and taking it on trust caused two
+  // separate bugs that looked unrelated:
+  //
+  //   1. A handful of institutions carry a coordinate belonging to some OTHER province —
+  //      "Sun Yat Sen High School of Iloilo" plots in Metro Manila. There are 115 nationwide
+  //      (0.17%), and `road_unreliable` does not catch them: the point snaps to a road
+  //      perfectly well, just the wrong one. One of them is enough. In Quezon City the full
+  //      extent of the projected nodes is 66× wider than the box holding 96% of its schools,
+  //      so the auto-fit zoomed out to include the stray and squeezed the province into a
+  //      smudge. (MapView never had this problem because it fits on `robustBounds` —
+  //      percentiles, not min/max. The network did not, and that was the whole bug.)
+  //
+  //   2. "Show on the map" flies the camera to zoom 14. Coming BACK to the network then
+  //      seeded every node off that projection, so a province spanned hundreds of thousands
+  //      of pixels. `forceCenter` only recentres the mean — it never shrinks the spread — and
+  //      the zoom floor clamps at 0.05, so the graph could not be framed at any zoom. It
+  //      scattered off-screen and left a blank canvas that no amount of zooming could recover.
+  //
+  // So the seed is NORMALISED. `scale` only kicks in when the map's framing is grossly wrong
+  // (case 2); when the map is showing the area normally it is exactly 1 and the morph stays
+  // pixel-perfect. Clamping always applies, and costs the 99.8% of nodes nothing.
+  //
+  // Clamping a stray is not a fudge, it is the correct model: in a force layout POSITION IS
+  // STRUCTURE, NOT PLACE. A wrong coordinate should never have been able to move a node here
+  // in the first place — it only could because we borrowed the map's geometry to start with.
+  // Clamped, the stray seeds into the crowd and the forces put it where its EDGES say it
+  // belongs: out in the isolate ring, with the other institutions that connect to nothing.
+  const SEED_PAD = 40;
+  const SEED_CLAMP = 0.15; // a stray starts this far outside the core box, and no further
+
+  const projectSeed = useCallback(
+    (list, w, h) => {
+      const n = list.length;
+      const out = new Float32Array(n * 2);
+      const raw = new Array(n);
+      const xs = [];
+      const ys = [];
+      for (let i = 0; i < n; i += 1) {
+        const p = projectNode?.(list[i]);
+        const ok = p && Number.isFinite(p.x) && Number.isFinite(p.y);
+        raw[i] = ok ? p : null;
+        if (ok) {
+          xs.push(p.x);
+          ys.push(p.y);
+        }
+      }
+      // Too few to reason about — hand the whole thing to d3's own placement.
+      if (xs.length < 8) {
+        out.fill(NaN);
+        return out;
+      }
+
+      const q = (arr, p) => {
+        const s = [...arr].sort((a, b) => a - b);
+        return s[Math.min(s.length - 1, Math.max(0, Math.floor(s.length * p)))];
+      };
+      const x0 = q(xs, 0.02), x1 = q(xs, 0.98);
+      const y0 = q(ys, 0.02), y1 = q(ys, 0.98);
+      const cw = Math.max(x1 - x0, 1);
+      const ch = Math.max(y1 - y0, 1);
+
+      // Is the map actually FRAMING this area, or is it parked on one school at zoom 14?
+      const fitScale = Math.min((w - SEED_PAD * 2) / cw, (h - SEED_PAD * 2) / ch);
+      const cx = (x0 + x1) / 2;
+      const cy = (y0 + y1) / 2;
+      const wild =
+        fitScale < 0.6 || fitScale > 1.6 ||
+        Math.abs(cx - w / 2) > w || Math.abs(cy - h / 2) > h;
+
+      // Identity when the framing is sane — that is what keeps the unfold pixel-perfect.
+      const s = wild ? fitScale : 1;
+      const tx = wild ? w / 2 - cx * s : 0;
+      const ty = wild ? h / 2 - cy * s : 0;
+
+      const mx = cw * SEED_CLAMP;
+      const my = ch * SEED_CLAMP;
+      for (let i = 0; i < n; i += 1) {
+        const p = raw[i];
+        if (!p) {
+          out[i * 2] = NaN;
+          out[i * 2 + 1] = NaN;
           continue;
         }
-        const p = projectNode?.(list[i]);
-        out[i * 2] = p ? p.x : NaN;
-        out[i * 2 + 1] = p ? p.y : NaN;
+        const x = Math.min(Math.max(p.x, x0 - mx), x1 + mx);
+        const y = Math.min(Math.max(p.y, y0 - my), y1 + my);
+        out[i * 2] = x * s + tx;
+        out[i * 2 + 1] = y * s + ty;
       }
       return out;
     },
     [projectNode]
+  );
+
+  // On a re-layout (the threshold moved) the seed is the CURRENT layout, so the graph is
+  // nudged rather than detonated.
+  const seedFor = useCallback(
+    (list, w, h) => {
+      const prev = posRef.current;
+      if (prev && prev.length === list.length * 2) return prev.slice();
+      return projectSeed(list, w, h);
+    },
+    [projectSeed]
   );
 
   // --- layout ---
@@ -200,7 +283,7 @@ export default function NetworkView({
     if (!size.w || !size.h || !nodes.length) return;
 
     const cold = !posRef.current || posRef.current.length !== nodes.length * 2;
-    const seed = seedFor(nodes);
+    const seed = seedFor(nodes, size.w, size.h);
     // Draw the seed immediately: the first painted frame of the network IS the map.
     posRef.current = seed.slice();
     if (cold) introRef.current = performance.now();
@@ -258,16 +341,23 @@ export default function NetworkView({
   // The exit re-projects from the LIVE map rather than reusing the entry seed, so it lands
   // correctly even if the window was resized while the network was open.
   useEffect(() => {
-    if (!exiting || !posRef.current || !nodes.length) return;
-    const to = new Float32Array(nodes.length * 2);
+    if (!exiting || !posRef.current || !nodes.length || !size.w) return;
+    // The SAME normalisation as the entry seed, recomputed live so it survives a resize. It
+    // has to be the same, or leaving would fling the graph at exactly the coordinates the
+    // entry took care to avoid — a stray would streak off to another province, and exiting
+    // while the map sits at zoom 14 would explode the whole graph off-screen on the way out.
+    const to = projectSeed(nodes, size.w, size.h);
     let ok = false;
-    for (let i = 0; i < nodes.length; i += 1) {
-      const p = projectNode?.(nodes[i]);
-      if (p) ok = true;
-      to[i * 2] = p ? p.x : posRef.current[i * 2];
-      to[i * 2 + 1] = p ? p.y : posRef.current[i * 2 + 1];
+    for (let i = 0; i < to.length; i += 2) {
+      if (Number.isFinite(to[i])) {
+        ok = true;
+        break;
+      }
     }
     if (!ok) return; // no map to fold back into — the CSS fade alone will do
+    for (let i = 0; i < to.length; i += 1) {
+      if (!Number.isFinite(to[i])) to[i] = posRef.current[i]; // unprojectable: leave it be
+    }
     workerRef.current?.postMessage({ type: "stop" });
     morphRef.current = {
       from: posRef.current.slice(),
@@ -275,16 +365,52 @@ export default function NetworkView({
       fromView: { ...viewRef.current },
       t0: performance.now(),
     };
-  }, [exiting, nodes, projectNode]);
+  }, [exiting, nodes, projectSeed, size.w, size.h]);
 
   // --- the frame the whole graph should fit in ---
+  //
+  // A TRIMMED extent, not a raw min/max. One runaway node must never dictate the camera: the
+  // map has always fitted on percentiles (`robustBounds`) and the network did not, so a single
+  // institution whose coordinate belongs to another province was enough to zoom the whole
+  // view out until the real graph was a smudge (see `projectSeed`).
+  //
+  // It is a TRIM, not a percentile crop, and that distinction matters. Fitting to the 2–98%
+  // box would cut the isolate ring — the stranded institutions arranged around the core — and
+  // those are the entire point of this view. So: take the 2–98% box, widen it by 1.5× its own
+  // span, and fit to everything inside THAT. Legitimate structure is comfortably within it;
+  // a node 66 box-widths out is not.
   const fitTarget = useCallback(() => {
     const pos = posRef.current;
     if (!pos || !size.w) return null;
+
+    const xs = [];
+    const ys = [];
+    for (let i = 0; i < pos.length; i += 2) {
+      if (Number.isFinite(pos[i]) && Number.isFinite(pos[i + 1])) {
+        xs.push(pos[i]);
+        ys.push(pos[i + 1]);
+      }
+    }
+    if (!xs.length) return null;
+
+    const q = (arr, p) => {
+      const s = [...arr].sort((a, b) => a - b);
+      return s[Math.min(s.length - 1, Math.max(0, Math.floor(s.length * p)))];
+    };
+    const bounds = (arr) => {
+      const a = q(arr, 0.02);
+      const b = q(arr, 0.98);
+      const span = Math.max(b - a, 1);
+      return [a - span * 1.5, b + span * 1.5];
+    };
+    const [xLo, xHi] = bounds(xs);
+    const [yLo, yHi] = bounds(ys);
+
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
     for (let i = 0; i < pos.length; i += 2) {
       const x = pos[i], y = pos[i + 1];
       if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
+      if (x < xLo || x > xHi || y < yLo || y > yHi) continue; // a runaway; do not chase it
       if (x < minX) minX = x;
       if (x > maxX) maxX = x;
       if (y < minY) minY = y;

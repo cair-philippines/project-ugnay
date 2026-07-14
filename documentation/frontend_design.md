@@ -227,6 +227,17 @@ The force layout is **seeded from the map's live projection** (`projectNode`, le
 
 The seed is not decoration — it is a far better initial condition than d3's default phyllotaxis spiral (real clusters already start near each other), so it settles in fewer ticks. A **re-layout** (the threshold moved) seeds from the *current* positions at `alpha: 0.35`, so the graph is nudged rather than detonated, and the user's mental map of it survives.
 
+**But a projection is not automatically a sane seed, and taking it on trust caused two bugs that looked unrelated** (both fixed 2026-07-14, `projectSeed`):
+
+1. **A stray coordinate squeezed the whole graph.** ~115 institutions nationwide (0.17%) carry a coordinate belonging to a *different province* — "Sun Yat Sen High School **of Iloilo**" plots in Metro Manila. `road_unreliable` catches only 20% of them, because the point snaps to a road perfectly well; it is just the wrong road. **One is enough:** Quezon City's full extent is **66× wider** than the box holding 96% of its schools, so the auto-fit chased the stray and rendered the entire graph into a **46×49 px smudge — 0.2% of the canvas**. MapView never had this bug because it fits on percentiles (`robustBounds`); the network fit on raw min/max. That was the whole defect.
+2. **The round-trip through "Show on the map" left a blank canvas.** That flies the camera to zoom 14; returning to the network re-seeded every node off *that* projection, so a province spanned hundreds of thousands of pixels. `forceCenter` only recentres the **mean** — it never shrinks the spread — and the zoom floor clamps at `0.05`, so the graph could not be framed at *any* zoom.
+
+The seed is therefore **normalised**: rescaled only when the map's framing is grossly wrong (case 2 — at normal zoom the factor is exactly `1`, so the unfold stays pixel-perfect), and outliers **clamped** into the core box (case 1). Clamping a stray is not a fudge, it is the correct model — **in a force layout position is structure, not place**, so a wrong coordinate should never have been able to move a node here at all. It only could because we borrowed the map's geometry to start with. Clamped, the stray seeds into the crowd and the forces put it where its *edges* say it belongs: out in the isolate ring, with the other institutions that connect to nothing.
+
+The **exit morph re-uses the same normalisation** (recomputed live, so it survives a resize) — otherwise leaving would fling the graph at exactly the coordinates the entry took care to avoid.
+
+The auto-fit is now a **trimmed** extent, not a raw min/max: take the 2–98% box, widen it by 1.5× its own span, fit to everything inside that. It is a *trim*, not a percentile crop — fitting to the 2–98% box would cut the **isolate ring**, and the stranded institutions are the entire point of the view.
+
 ### 5B.5c Two performance bugs that made the settle unwatchable (Round 12)
 Both were in code that "worked":
 1. **The draw loop listed `progress` and `hover` in its dependency array.** A worker tick (60/s) tore the effect down, re-created the rAF loop, and re-assigned `canvas.width` — which **reallocates the canvas backing store**. We were rebuilding the canvas sixty times a second underneath the very animation we wanted people to watch. Everything the loop reads now lives in a ref (`sceneRef`); the effect depends on the canvas size and nothing else, and the progress bar is a direct style write.

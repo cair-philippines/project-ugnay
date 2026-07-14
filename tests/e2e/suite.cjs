@@ -1498,6 +1498,94 @@ const sliderFor = (p, label) =>
     await nctx.close();
   }
 
+  // ===== T16 — Network view: a bad coordinate must not move the camera =====
+  //
+  // Some institutions carry a coordinate belonging to a DIFFERENT PROVINCE — "Sun Yat Sen High
+  // School of Iloilo" plots in Metro Manila. There are 115 nationwide (0.17%), and
+  // `road_unreliable` does not catch them: the point snaps to a road perfectly well, just the
+  // wrong one. One is enough. Quezon City's full extent is 66× wider than the box holding 96%
+  // of its schools, and the network's auto-fit chased the stray: the entire graph rendered into
+  // a 46×49px smudge, 0.2% of the canvas.
+  //
+  // The MAP never had this bug because it fits on percentiles (`robustBounds`). The network fit
+  // on raw min/max. Both tests below FAIL on the pre-fix build — verified, not assumed.
+  log("\nT16 — Network view: strays & the round-trip");
+  {
+    const sctx = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+    const s = await sctx.newPage();
+
+    // How much of the canvas the graph's ink actually spans. A collapsed graph still has ink —
+    // it is just crushed into a corner — so counting pixels is not enough; we need the SPREAD.
+    const spread = (pg) =>
+      pg.evaluate(() => {
+        const c = document.querySelector('[data-testid="network-canvas"]');
+        const { data, width, height } = c.getContext("2d").getImageData(0, 0, c.width, c.height);
+        let ink = 0, minX = 1e9, minY = 1e9, maxX = -1e9, maxY = -1e9;
+        for (let i = 0; i < data.length; i += 4) {
+          if (data[i + 3] < 8) continue;
+          ink += 1;
+          const px = (i / 4) % width;
+          const py = Math.floor((i / 4) / width);
+          if (px < minX) minX = px;
+          if (px > maxX) maxX = px;
+          if (py < minY) minY = py;
+          if (py > maxY) maxY = py;
+        }
+        return { ink, fill: ink ? ((maxX - minX) * (maxY - minY)) / (width * height) : 0 };
+      });
+
+    await enterMap(s, { region: "National Capital Region (NCR)", province: "Quezon City" });
+
+    await T("T16.1", "A stray coordinate does NOT squeeze the graph (Quezon City, worst case)", async () => {
+      await s.getByRole("button", { name: "Network", exact: true }).click();
+      await s.waitForSelector('[data-testid="network-canvas"]', { timeout: 15000 });
+      await s.waitForTimeout(6000);
+      const g = await spread(s);
+      assert(g.fill > 0.25,
+        `the graph is squeezed into ${(g.fill * 100).toFixed(1)}% of the canvas — a stray is ` +
+          `dictating the fit (pre-fix this was 0.2%: a 46×49px smudge)`);
+      return `graph fills ${(g.fill * 100).toFixed(0)}% of the canvas`;
+    });
+
+    await T("T16.2", "Network → Show on the map → Network survives the round-trip", async () => {
+      // "Show on the map" flies to zoom 14. Returning re-seeded every node off THAT projection,
+      // so a province spanned hundreds of thousands of pixels. forceCenter only recentres the
+      // mean — it never shrinks the spread — and the zoom floor clamps at 0.05, so the graph
+      // could not be framed at any zoom: it scattered off-screen and left a blank canvas that
+      // no amount of zooming could recover.
+      const before = await spread(s);
+      let hit = false;
+      for (const [x, y] of [[720, 450], [700, 430], [740, 470], [680, 470], [760, 430], [720, 400]]) {
+        await s.mouse.click(x, y);
+        await s.waitForTimeout(300);
+        if (await s.locator('[data-testid="show-on-map"]').isVisible().catch(() => false)) {
+          hit = true;
+          break;
+        }
+      }
+      assert(hit, "no node was selectable in the graph");
+      await s.locator('[data-testid="show-on-map"]').click();
+      await s.waitForTimeout(2200);
+      const z = await s.evaluate(() => window.__ugnayMap.getZoom());
+      assert(z >= 13.9, `did not fly to the institution (zoom ${z.toFixed(1)})`);
+
+      await s.getByRole("button", { name: "Network", exact: true }).click();
+      await s.waitForSelector('[data-testid="network-canvas"]', { timeout: 15000 });
+      await s.waitForTimeout(6000);
+      const after = await spread(s);
+      assert(after.ink > 3000, `BLANK CANVAS on return from zoom ${z.toFixed(1)} (ink ${after.ink})`);
+      assert(after.fill > 0.25,
+        `the graph collapsed on return — fills only ${(after.fill * 100).toFixed(1)}% of the canvas`);
+      // …and it is the SAME graph, not a handful of survivors.
+      assert(Math.abs(before.ink - after.ink) / before.ink < 0.45,
+        `the returned graph is not the graph we left (ink ${before.ink} → ${after.ink})`);
+      return `returned from zoom ${z.toFixed(1)}: fills ${(after.fill * 100).toFixed(0)}%, ink ${before.ink}→${after.ink}`;
+    });
+
+    await s.close();
+    await sctx.close();
+  }
+
   // ===== summary =====
   log("\n" + "=".repeat(72));
   const pass = results.filter((r) => r.ok).length;
