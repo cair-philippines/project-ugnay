@@ -7,6 +7,41 @@ details: `documentation/deployment.md`.
 
 ---
 
+## 2026-07-14 (latest) — a trailing space was killing the map
+
+`Failed to execute 'add' on 'DOMTokenList': The token provided must not be empty.` The whole map
+view, replaced by an error card, right after pressing **Explore map**. Intermittently.
+
+**MapLibre applies a popup's `className` with `split(" ")` and no filter:**
+
+```js
+for (const t of this.options.className.split(" ")) this._container.classList.add(t);
+```
+
+One trailing space produces an empty token, and `classList.add("")` throws. The popup's className
+was built as `` `ugnay-popup ugnay-popup--hover ${visible ? "" : "--off"}` `` — which leaves
+exactly that trailing space **whenever the card is visible**.
+
+It only detonated if the popup's **first** mount was a visible one, which is why it looked random.
+That needs the cursor to be sitting over the map as a new area lands — i.e. exactly where the
+cursor is right after you click Explore. Institutions are held at opacity 0 during the reveal, but
+**MapLibre still hit-tests them**, so a hover fired for a node that wasn't on screen yet, and that
+hover (rather than the anchor node) is what first brought the popup into existence.
+
+Introduced by the popup-deferral change two commits earlier: gating the anchor on `revealed` is
+what allowed a *hover* to be the popup's first mount.
+
+Fixed twice over: the className is now a filtered `join(" ")` (no empty token is possible), and
+nothing is hoverable while the area is still revealing (a tooltip for an invisible node was wrong
+anyway).
+
+**The failure mode is the lesson.** React's ErrorBoundary caught the throw, so it never surfaced as
+a console error or a `pageerror` — the E2E suite reported *"CONSOLE ERRORS: none"* while the map
+was a blank panel. **T2.5** now drives a cursor across the map through an entire reveal and asserts
+the boundary is absent; it fails on the pre-fix build. Suite: **56/56**.
+
+---
+
 ## 2026-07-14 (later) — one bad coordinate was steering the camera
 
 Two bugs that looked unrelated, and were the same bug: **the force layout was seeded straight

@@ -525,6 +525,13 @@ export default function MapView({
     (e) => {
       const map = mapRef.current?.getMap();
       if (!map) return;
+      // Nothing is hoverable while the area is still being revealed. The institutions are held
+      // at opacity 0 during the fade, but MapLibre still hit-tests them — so a cursor that
+      // simply happened to be sitting over the map when the tiles landed (i.e. exactly where it
+      // is right after you click "Explore map") would raise a hover card for a node that is not
+      // on screen yet. Besides being wrong on its own, that was the trigger for a crash: it made
+      // the popup's FIRST mount a visible one. See `popupClass`.
+      if (!revealed) return;
       const f = e.features && e.features[0];
       if (hoverFidRef.current != null) {
         map.setFeatureState({ source: "nodes", id: hoverFidRef.current }, { hover: false });
@@ -547,7 +554,7 @@ export default function MapView({
         }
       }
     },
-    [nodeIndex]
+    [nodeIndex, revealed]
   );
 
   const handleMouseLeave = useCallback(() => {
@@ -610,6 +617,27 @@ export default function MapView({
   }, [popupNode, nodes, revealed]);
 
   const popupVisible = showHover && !!popupNode;
+
+  // BUILT BY JOINING, NEVER BY INTERPOLATING AN EMPTY STRING. This is not style.
+  //
+  // MapLibre applies a popup's className like this, with no filter:
+  //
+  //     for (const t of this.options.className.split(" "))
+  //         this._container.classList.add(t);
+  //
+  // so ONE trailing space produces an empty token, and `classList.add("")` throws
+  // "Failed to execute 'add' on 'DOMTokenList': The token provided must not be empty."
+  // The old template — `ugnay-popup ugnay-popup--hover ${visible ? "" : "--off"}` — left
+  // exactly that trailing space whenever the card was visible.
+  //
+  // It only ever detonated if the popup's FIRST mount was a visible one, which is why it looked
+  // random: it needed the cursor to be sitting over the map as a new area landed (i.e. exactly
+  // where the cursor is right after you press "Explore map"), so that a hover — not the anchor —
+  // was what first brought the popup into existence. It took down the whole map view, and the
+  // ErrorBoundary caught it, so it never even surfaced as a console error.
+  const popupClass = ["ugnay-popup", "ugnay-popup--hover", popupVisible ? null : "ugnay-popup--off"]
+    .filter(Boolean)
+    .join(" ");
 
   return (
     <Map
@@ -754,9 +782,7 @@ export default function MapView({
           anchor="bottom"
           offset={14}
           maxWidth="none"
-          className={`ugnay-popup ugnay-popup--hover ${
-            popupVisible ? "" : "ugnay-popup--off"
-          }`}
+          className={popupClass}
         >
           <InstitutionCard
             node={popupAnchor}

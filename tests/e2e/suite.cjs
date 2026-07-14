@@ -491,6 +491,57 @@ const sliderFor = (p, label) =>
       await p.close();
       return `opacity constant throughout (0 data-driven frames); held at 0 while ${firstWithNodes.src} nodes streamed in; ${mid} interpolated steps over ${dur.duration}ms; ${drawn} pins`;
     });
+
+    await T("T2.5", "Cursor over the map DURING the reveal does not kill the map view", async () => {
+      // This shipped, and it took the whole map view down with "Failed to execute 'add' on
+      // 'DOMTokenList': The token provided must not be empty."
+      //
+      // MapLibre applies a popup's className with `className.split(" ")` and NO filter, so a
+      // single trailing space yields an empty token and classList.add("") throws. The popup's
+      // className was built by interpolating an empty string when the card was visible, which
+      // left exactly that trailing space.
+      //
+      // It only detonated when the popup's FIRST mount was a visible one — which needs the
+      // cursor to be sitting over the map as a new area lands, i.e. exactly where the cursor is
+      // right after you press "Explore map". Institutions are held at opacity 0 during the
+      // reveal but MapLibre still HIT-TESTS them, so a hover fired for a node that wasn't on
+      // screen yet, and that hover (rather than the anchor) is what first created the popup.
+      //
+      // NOTE THE FAILURE MODE: React's ErrorBoundary caught the throw, so it never appeared as
+      // a console error or a pageerror. The suite's "no console errors" check sails straight
+      // past it. The only way to catch it is to look for the boundary itself.
+      const p = await ctx.newPage();
+      await p.goto(BASE, { waitUntil: "networkidle", timeout: 60000 });
+      await p.waitForSelector("select", { timeout: 30000 });
+      await p.locator("select").first().selectOption({ label: "Region I (Ilocos Region)" });
+      await p.waitForTimeout(700);
+      await p.getByRole("button", { name: "Clear", exact: true }).click();
+      await p.locator("label").filter({ hasText: /^Ilocos Norte$/ }).first()
+        .locator("input[type=checkbox]").check();
+      await p.waitForTimeout(400);
+
+      await p.getByRole("button", { name: /Explore map/ }).click();
+      // Keep the cursor moving over the middle of the map while the area streams in and the
+      // camera flies. That is all a user has to do: leave the mouse where they clicked.
+      for (let i = 0; i < 60; i += 1) {
+        await p.mouse.move(700 + (i % 9) * 12, 430 + (i % 7) * 11);
+        await p.waitForTimeout(60);
+      }
+      await p.waitForTimeout(1500);
+
+      const broke = await p.locator("text=Something broke in the map view").count();
+      assert(broke === 0, "the map view crashed while the cursor sat over it during the reveal");
+      // And the popup's class list must never contain an empty token, whatever its state.
+      const cls = await p.evaluate(() => {
+        const el = document.querySelector(".maplibregl-popup");
+        return el ? el.className : "";
+      });
+      assert(!/\s\s|\s$/.test(cls), `popup className has a stray space: ${JSON.stringify(cls)}`);
+      const pins = await renderedCount(p, "nodes-basic");
+      assert(pins > 0, "the map rendered nothing");
+      await p.close();
+      return `survived a hover through the whole reveal; ${pins} pins; clean class list`;
+    });
   }
 
   // ===== T3–T10 on one shared map session =====

@@ -80,6 +80,21 @@ Each of these produced a *false* result before being fixed — they cost real de
    this container renders in software and drops frames, so a *correct* 450 ms fade can be
    sampled only two or three times.
 
+6. **An ErrorBoundary makes a crash INVISIBLE to a console-error check.** A React error boundary
+   catches the throw, so it never becomes a `pageerror` or a console error — the suite happily
+   reports "CONSOLE ERRORS: none" while the map view is a blank panel reading *"Something broke
+   in the map view"*. That is exactly how a `DOMTokenList` crash shipped to production. **Assert
+   the boundary is absent** (`text=Something broke in the map view`), don't rely on error events.
+
+7. **MapLibre applies a popup/marker `className` with `split(" ")` and NO filter:**
+   ```js
+   for (const t of this.options.className.split(" ")) this._container.classList.add(t);
+   ```
+   One trailing space ⇒ an empty token ⇒ `classList.add("")` throws *"The token provided must not
+   be empty"* and takes the whole map down. So **never** build such a className by interpolating a
+   possibly-empty string (`` `a b ${on ? "" : "c"}` `` leaves a trailing space). Join a filtered
+   array instead.
+
 Also: **assert on state, not on text that is always present.** The detail drawer is always
 mounted (it slides in on a transform), so its "INSTITUTION" heading is in the DOM even with
 nothing selected. Test drawer-open via the `.ugnay-drawer-open` class, not its text.
