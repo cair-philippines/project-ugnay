@@ -5,6 +5,8 @@ import { collectNodes, buildAccessIndex, buildNearestIndex } from "./lib/graph";
 import { accessibilityStats } from "./lib/stats";
 import SetupView from "./components/SetupView";
 import MapView from "./components/MapView";
+import NetworkView from "./components/NetworkView";
+import NetworkLegend from "./components/NetworkLegend";
 import FilterPanel from "./components/FilterPanel";
 import DetailDrawer from "./components/DetailDrawer";
 import Legend from "./components/Legend";
@@ -107,6 +109,13 @@ export default function App() {
   const [gapVisible, setGapVisible] = useState(false);
   const [thresholdKm, setThresholdKm] = useState(3);
   const [selectedNode, setSelectedNode] = useState(null);
+
+  // "map" | "network". Two readings of the same institutions: WHERE they are, and whether
+  // their pathway goes anywhere. The network view is not a prettier map — it answers a
+  // question the map structurally cannot (see lib/progression.js).
+  const [view, setView] = useState("map");
+  const [pathway, setPathway] = useState("academic");
+  const [showReskilling, setShowReskilling] = useState(false);
 
   const [nodeSize, setNodeSize] = useState(4);
   const [borderWidth, setBorderWidth] = useState(2);
@@ -329,6 +338,30 @@ export default function App() {
           ← Change area
         </button>
 
+        {/* Map ⇄ Network. A segmented control, not a checkbox: these are two views of one
+            dataset, and neither is a mode of the other. */}
+        <div className="flex items-center rounded border border-gray-200 overflow-hidden shrink-0">
+          {[
+            ["map", "Map"],
+            ["network", "Network"],
+          ].map(([key, label]) => (
+            <button
+              key={key}
+              onClick={() => setView(key)}
+              title={
+                key === "map"
+                  ? "Where institutions are"
+                  : "Whether their pathway leads anywhere"
+              }
+              className={`text-xs px-2.5 py-1 transition-all ${
+                view === key ? "bg-gray-800 text-white" : "bg-white text-gray-500 hover:bg-gray-50"
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+
         {/* Sector toggles, gap analysis and basemap are DESKTOP-only here. On a phone they
             don't fit — they used to overflow and clip off the right edge — so they move
             into the bottom sheet, where they sit with the other map controls. */}
@@ -356,32 +389,39 @@ export default function App() {
               })}
             </div>
 
+            {/* Gap analysis and the basemap are MAP controls — a halo and a satellite layer
+                mean nothing in a force layout. They leave with the map rather than sit
+                there inert. */}
             <div className="flex items-center gap-3 ml-auto">
-              <button
-                onClick={() => setGapVisible((v) => !v)}
-                title="Halo every institution that cannot reach its next level within the distance threshold."
-                className={`text-xs rounded px-2.5 py-1 border transition-all ${
-                  gapVisible
-                    ? "bg-amber-500 text-white border-transparent"
-                    : "bg-white text-gray-500 border-gray-300 hover:border-gray-400"
-                }`}
-              >
-                {gapVisible ? "Hide gap analysis" : "Gap analysis"}
-              </button>
-
-              <div className="flex items-center rounded border border-gray-200 overflow-hidden">
-                {["plain", "satellite", "roads"].map((b) => (
+              {view === "map" && (
+                <>
                   <button
-                    key={b}
-                    onClick={() => setBasemap(b)}
-                    className={`text-xs px-2 py-1 capitalize transition-all ${
-                      basemap === b ? "bg-gray-800 text-white" : "bg-white text-gray-500 hover:bg-gray-50"
+                    onClick={() => setGapVisible((v) => !v)}
+                    title="Halo every institution that cannot reach its next level within the distance threshold."
+                    className={`text-xs rounded px-2.5 py-1 border transition-all ${
+                      gapVisible
+                        ? "bg-amber-500 text-white border-transparent"
+                        : "bg-white text-gray-500 border-gray-300 hover:border-gray-400"
                     }`}
                   >
-                    {b}
+                    {gapVisible ? "Hide gap analysis" : "Gap analysis"}
                   </button>
-                ))}
-              </div>
+
+                  <div className="flex items-center rounded border border-gray-200 overflow-hidden">
+                    {["plain", "satellite", "roads"].map((b) => (
+                      <button
+                        key={b}
+                        onClick={() => setBasemap(b)}
+                        className={`text-xs px-2 py-1 capitalize transition-all ${
+                          basemap === b ? "bg-gray-800 text-white" : "bg-white text-gray-500 hover:bg-gray-50"
+                        }`}
+                      >
+                        {b}
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
 
               {anyLoading && <span className="text-xs text-blue-500 animate-pulse">Loading…</span>}
             </div>
@@ -461,9 +501,34 @@ export default function App() {
             uiHidden={uiHidden}
           />
 
+          {/* The network OVERLAYS the map rather than replacing it. Unmounting MapView would
+              throw away its WebGL context (and the fitted camera); hiding it with
+              `display:none` would resize its container to zero, which reallocates and
+              clears that context's buffer — the same defect that made the map flash white
+              on every click. Leaving it mounted at full size underneath costs an idle map
+              and nothing else. */}
+          {view === "network" && (
+            <ErrorBoundary>
+              <NetworkView
+                nodes={nodes}
+                accessIndex={accessIndex}
+                nearestIndex={nearestIndex}
+                thresholdKm={thresholdKm}
+                pathway={pathway}
+                onPathway={setPathway}
+                sectorColors={sectorColors}
+                nodeShapes={nodeShapes}
+                showReskilling={showReskilling}
+                selectedNode={selectedNode}
+                onNodeClick={setSelectedNode}
+                isMobile={isMobile}
+              />
+            </ErrorBoundary>
+          )}
+
           {/* On mobile the legend is a TAB inside the bottom sheet — a floating legend and
               a bottom sheet would fight over the same corner of a small screen. */}
-          {!isMobile && (
+          {!isMobile && view === "map" && (
           <Legend
             sectorColors={sectorColors}
             nodeShapes={nodeShapes}
@@ -471,6 +536,17 @@ export default function App() {
             thresholdKm={thresholdKm}
             uiHidden={uiHidden}
           />
+          )}
+
+          {!isMobile && view === "network" && (
+            <NetworkLegend
+              sectorColors={sectorColors}
+              nodeShapes={nodeShapes}
+              pathway={pathway}
+              thresholdKm={thresholdKm}
+              showReskilling={showReskilling}
+              onToggleReskilling={() => setShowReskilling((v) => !v)}
+            />
           )}
 
           {loadedCount === 0 && !anyLoading && (
@@ -491,6 +567,7 @@ export default function App() {
             colors={sectorColors}
             stats={stats}
             thresholdKm={thresholdKm}
+            nearestIndex={nearestIndex}
             onClose={() => setSelectedNode(null)}
             isMobile={isMobile}
           />

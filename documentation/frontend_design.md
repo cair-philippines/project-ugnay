@@ -159,9 +159,63 @@ Rendered **solid** (not dashed — dashes read as "broken"), muted grey, with **
 - **Gap halos carry the TESDA caveat**: a haloed TESDA node is a training provider with no assessment centre in reach, matched **role-based only** — it does not check the qualification family actually trained for, so it *understates* the true gap (M4/S5).
 
 ### 5.8 Deferred to post-demo
-- **Progression edges** (directional ES→JHS→SHS→HEI/TESDA rendering), the focused progression fan, incoming/"who feeds into me", trace-full-pathway.
+- ~~**Progression edges**~~ — **SHIPPED, but as a second view rather than a map overlay. See §5B.**
+- The focused progression fan on the map, incoming/"who feeds into me".
 - The **sidebar drawer** (`ContinuityPanel`) — designed in Round 3 §5A.6, still unbuilt.
 - TESDA qualification-family matching (M4/S5).
+
+---
+
+## 5B. The NETWORK VIEW — progression as a graph, off the map (Round 10 — 2026-07-13)
+
+**Status: built.** `components/NetworkView.jsx` · `components/NetworkLegend.jsx` · `lib/progression.js` · `workers/forceLayout.worker.js`. Ruleset and pipeline: SPECS §A5, `scripts/s7_progression_chains.py`.
+
+### 5B.1 Why it is not a map layer
+
+§5A assumed progression would be drawn *on* the map. It should not be, and the reason is not aesthetic.
+
+The map answers a **one-hop** question — *is there a next level nearby?* — and that question flatters reality. Adams Central Elementary has a junior high **0.76 km** away, so its gap halo is clean. Its nearest university is **63 km** away and its nearest TESDA centre **44 km**: a learner starting there cannot finish **any** pathway. Nationwide, **19,934 institutions have a next step and can never reach higher ed**. Every one is painted healthy today.
+
+Seeing that requires seeing the **chain**, and on a map you cannot: position is already spent on coordinates, so a school with no onward pathway looks exactly like a school with a perfect one — a dot in a field of dots. In a force layout **position is the structure**. A stranded institution has nothing pulling it inward, so it drifts to the periphery and the eye finds it unprompted. We are not annotating the answer; the layout is letting the graph state it.
+
+### 5B.2 Grammar (deliberately NOT the map's)
+
+| Channel | Map | Network |
+|---|---|---|
+| **Fill** | sector | **the verdict** (cut / dead-end / complete) |
+| **Shape** | sector | sector (unchanged) |
+| **Ring** | — | sector colour, so sector survives the fill being reassigned |
+| **Position** | geography | **graph structure** |
+
+Three nested severity states, per pathway: **cut** (red — no next step within the threshold) ⊂ **dead-end chain** (amber — has a next step, but nothing downstream ever reaches the end; *the state the map cannot show*) ⊂ not **complete** (grey, receding). Plus **N/A** — an assessment centre has no academic verdict, an HEI no tech-voc one. N/A is not a failure and is never painted as one.
+
+The red/amber ramp is **shared with the map's halos on purpose**: in both views red means *the next step is missing* and amber means *the next step is there, but it doesn't get you out*. The precise wording differs, so each legend spells its own out.
+
+Complete recedes but must not **vanish** — a first pass faded it so far that the healthy core became a grey smudge, and the broken nodes lost the baseline they are read against.
+
+### 5B.3 The pathway lens
+Academic and tech-voc are **separate lenses**, because SPECS §A5 tracks them separately: an SHS that can reach a training centre but no university is tech-voc complete and academic cut, and one merged verdict would hide *which* door is shut. The lens switches both the node verdicts and which edges are drawn.
+
+**Reskilling (HEI → TESDA)** is an optional dashed overlay, off by default, and is excluded from the **forces** as well as from the chain walk — not just from the arithmetic. Letting it pull an HEI toward a training centre would fuse two clusters a learner cannot actually travel between, inventing connectivity in the one view whose whole job is to show its absence.
+
+### 5B.4 Three sources of truth, and it matters which answers what
+- **Chain verdict** ← the S7 node fields. Nationwide, exact, tile-independent.
+- **One-hop verdict** ← the `nearest` index. Nationwide, exact, tile-independent.
+- **Drawn edges** ← the `access` index. **Only among loaded, visible nodes.**
+
+So a node at the edge of the loaded area may have neighbours we cannot draw — but its **verdict is still right**, because the verdict never consults the drawn edges. Computing "cut" from the drawn edges instead would brand a school stranded for no reason but the user's tile selection. The legend states the limit.
+
+No new edge payload ships: a level you *need* next is by definition a level you *lack*, so every progression edge is already inside the accessibility adjacency the tiles carry, and `lib/progression.js` derives them.
+
+### 5B.5 Implementation notes
+- **Canvas, not SVG.** A region is ~6,700 nodes / ~25,000 edges; that many DOM nodes makes hover alone a slideshow.
+- **Layout in a Web Worker** (`d3-force`), streaming positions back as it converges, so the graph visibly *settles* — watching clusters pull together and stranded nodes drift out is most of how the intuition gets built. Imported as `?worker`, **not** `new URL(...)`.
+- **The network OVERLAYS the map; MapView is never unmounted or hidden.** Unmounting throws away the WebGL context and the fitted camera; `display:none` resizes its container to zero, which reallocates and clears that context's buffer — the same defect that made the map flash white on every click (§5). Leaving it mounted at full size underneath costs an idle map and nothing else.
+- Charge softens as the graph grows (`-30 × clamp(900/n)`) or a big region blows itself apart; a weak `forceX/forceY` keeps the thousands of isolates at a 1 km threshold from drifting to infinity instead of settling into a readable halo around the core.
+- The header already has a **"Tech-Voc" sector toggle**. The lens button says the same words and does a different job, so it carries an explicit `aria-label` ("Tech-Voc pathway").
+
+### 5B.6 What it shows (Ilocos Norte, 3 km)
+Academic: **213 cut · 198 dead-end · 78 complete** (65 N/A). Tech-voc: **203 · 191 · 143** (17 N/A). The two lenses genuinely disagree — which is the point of tracking them apart.
 
 ---
 

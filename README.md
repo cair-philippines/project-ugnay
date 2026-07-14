@@ -20,9 +20,16 @@ The country has coordinates for roughly 66,000 education institutions, but they 
 - **See every institution** on the map, encoded by sector **twice over** — by **shape** (DepEd ○ · higher-ed △ · TESDA □) and by **fill** (public vs private within each) — so the map still reads in greyscale and under colour-vision deficiency. Both are user-customisable, with a colorblind-safe preset. Administrative borders give context.
 - **Click one** to see everything reachable within a **road-distance threshold** (a 1–5 km slider) that offers something it doesn't — plus a detail panel with the nearest institution of each education level.
 - **Toggle Gap Analysis** to halo institutions that can't reach their next level within reach (amber = exists but too far; red = nothing nearby) — the first, honest glimpse of *progression* gaps.
+- **Switch to the Network view** to see the same institutions laid out by how they **connect** rather than where they sit — and find the ones whose pathway leads nowhere (below).
 - **Works on a phone**, where planners actually are: the map is full-bleed and unobstructed, with the controls in a bottom sheet you opt into.
 
-The deeper goal is educational **progression** — tracing whether a learner can move ES → JHS → SHS → HEI/TESDA without hitting a wall. The current build surfaces the accessibility half of that story; the progression-pathway rendering is designed and deferred to after the first demo.
+## The question the map cannot answer
+
+A map asks *is there a next level nearby?* — and that question flatters reality. Adams Central Elementary has a junior high **0.76 km** away, so on the map it looks fine. Its nearest university is **63 km** away and its nearest TESDA centre **44 km**: a learner starting there cannot finish **any** pathway. Nationwide, **19,934 institutions have a perfectly good next step and can never reach higher ed.**
+
+Finding them means walking the whole chain — ES → JHS → SHS → higher ed, and SHS → tech-voc training → assessment — and the two pathways are tracked separately, because a school that can reach a training centre but no university is complete on one and cut on the other.
+
+The **Network view** drops geography and lets a force layout place institutions by their connections instead. An institution whose pathway goes nowhere has nothing pulling it inward, so it drifts to the edge and you find it without being told where to look.
 
 ## How it works
 
@@ -36,7 +43,7 @@ A batch pipeline turns four coordinate datasets into small per-area map tiles th
 | **S6** | Slice everything into one JSON tile per municipality (+ an area index and cleaned admin boundaries) — the served artifact. |
 | **S7** | Walk the whole progression chain — can a learner starting here actually *reach* a university, or an assessment centre? Answered nationwide, because a chain can leave the area you are looking at. |
 
-The frontend is a **Vite + React + MapLibre** app that reads those tiles. Every distance it shows is a precomputed road distance; institutions plotted off the road network are flagged so a bad coordinate never masquerades as a real gap.
+The frontend is a **Vite + React + MapLibre** app that reads those tiles, with the Network view drawn on a canvas and its force layout run in a worker (`d3-force`). Every distance it shows is a precomputed road distance; institutions plotted off the road network are flagged so a bad coordinate never masquerades as a real gap.
 
 Roughly 66,000 institutions: ~47.6K DepEd public, ~8.3K DepEd private, ~2.4K CHED campuses, ~7.9K TESDA centers.
 

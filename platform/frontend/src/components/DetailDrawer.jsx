@@ -1,6 +1,45 @@
 import InstitutionCard from "./InstitutionCard";
 import { LEVELS } from "../lib/stats";
 import { SECTOR_LABEL } from "../lib/graph";
+import { chainStatus, PATHWAYS, STATUS_STYLE } from "../lib/progression";
+
+// Whether the two pathways actually END anywhere from here. Distinct from the ladder above,
+// which is one hop: a school can have every next level on its doorstep and still be on a
+// chain that reaches no university and no assessment centre. Clicking a red node in the
+// network view and being told only what is "reachable" would answer the wrong question.
+function PathwayVerdict({ node, thresholdKm, nearestIndex }) {
+  const rows = Object.entries(PATHWAYS)
+    .map(([key, p]) => [key, p, chainStatus(node, key, thresholdKm, nearestIndex)])
+    .filter(([, , status]) => status !== "na");
+  if (!rows.length) return null;
+
+  return (
+    <div className="mt-4 pt-3 border-t border-gray-100">
+      <div className="text-[10px] uppercase tracking-wide text-gray-400 mb-1.5">
+        Can a learner finish the pathway?
+      </div>
+      <div className="space-y-1.5">
+        {rows.map(([key, p, status]) => (
+          <div key={key} className="flex items-start gap-2 text-[11px]">
+            <span
+              className="w-2.5 h-2.5 rounded-full shrink-0 mt-[3px]"
+              style={{ backgroundColor: STATUS_STYLE[status].fill }}
+            />
+            <span className="flex-1 leading-snug">
+              <span className="font-medium text-gray-700">{p.label}</span>
+              <span className="text-gray-500">
+                {status === "complete" && ` — reaches ${p.ends} in hops of ${thresholdKm} km.`}
+                {status === "deadend" &&
+                  ` — has a next step, but the chain from here never reaches ${p.ends}.`}
+                {status === "cut" && ` — no next step at all within ${thresholdKm} km.`}
+              </span>
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 // Detail for the PINNED institution.
 //
@@ -85,6 +124,7 @@ export default function DetailDrawer({
   colors,
   stats,
   thresholdKm,
+  nearestIndex,
   onClose,
   isMobile = false,
 }) {
@@ -143,6 +183,14 @@ export default function DetailDrawer({
                 </div>
                 <Ladder stats={stats} colors={colors} />
               </div>
+
+              {nearestIndex && (
+                <PathwayVerdict
+                  node={node}
+                  thresholdKm={thresholdKm}
+                  nearestIndex={nearestIndex}
+                />
+              )}
 
               {/* Gap status — explains the halo the user can see on the map */}
               {stats.gap && (
