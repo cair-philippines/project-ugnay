@@ -597,10 +597,17 @@ export default function MapView({
     if (showHover) setPopupNode(hoverNode);
   }, [showHover, hoverNode]);
 
+  // …but NOT during the reveal. Creating a MapLibre popup and rendering a card into it is main-
+  // thread work, and the reveal is a 450ms tween that is already tight enough to fail on a
+  // software renderer (T2.4). Mounting the popup the instant the tiles land put that work
+  // squarely inside the fade. Waiting for `revealed` costs nothing — the popup only has to
+  // exist before the first HOVER, which is hundreds of milliseconds later — and it keeps the
+  // fix for the corner flash from being paid for out of the reveal's frame budget.
   const popupAnchor = useMemo(() => {
     if (popupNode) return popupNode;
+    if (!revealed) return null;
     return nodes.find((n) => Number.isFinite(n.lon) && Number.isFinite(n.lat)) || null;
-  }, [popupNode, nodes]);
+  }, [popupNode, nodes, revealed]);
 
   const popupVisible = showHover && !!popupNode;
 

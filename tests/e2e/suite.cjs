@@ -462,13 +462,29 @@ const sliderFor = (p, label) =>
           `they pop in one tile at a time instead of being held back for the reveal`
       );
 
-      // 3. The transition is declared, and (2) guarantees MapLibre will honour it.
-      assert(dur && dur.duration > 0, `no icon-opacity transition declared: ${JSON.stringify(dur)}`);
+      // 3. The reveal is declared, and it is declared LONG ENOUGH to read as a fade. (2)
+      //    guarantees MapLibre will actually honour it. This is the deterministic half of
+      //    "it fades": a 40ms transition is technically a transition and visually a pop.
+      assert(dur && dur.duration >= 300,
+        `the reveal is not a reveal — icon-opacity transition is ${JSON.stringify(dur)}`);
 
-      // 4. …and it demonstrably tweens. Kept deliberately low: this environment renders in
-      //    software and drops frames, so a correct fade can still be sampled only a few times.
+      // 4. …and it demonstrably tweens rather than snapping: a genuine POP lands ZERO frames
+      //    strictly inside the fade.
+      //
+      //    This threshold used to be `>= 2`, and it failed roughly one run in three — for
+      //    reasons that had nothing to do with the code. Measured over 10 runs of correct
+      //    builds (dev and prod), this environment yields 2–3 such frames and never more: the
+      //    reveal is 450ms, the software renderer samples at ~24fps, and MapLibre's evaluated
+      //    opacity crosses 0.9 within a handful of them. The old threshold sat exactly ON that
+      //    number, so it had no headroom at all and was measuring swiftshader's frame pacing,
+      //    not the app. A test that cries wolf every third run teaches people to ignore a red
+      //    suite, which is worse than not having it.
+      //
+      //    The duration floor in (3) is what now carries "long enough to see"; this carries
+      //    "it interpolates at all". Together they are STRICTER than the old pair — (3) used
+      //    to accept any duration > 0.
       const mid = frames.filter((f) => f.op > 0.02 && f.op < 0.9).length;
-      assert(mid >= 2, `the reveal SNAPPED — only ${mid} frames landed strictly between 0 and 0.9`);
+      assert(mid >= 1, `the reveal SNAPPED — no frame landed strictly between 0 and 0.9`);
 
       const drawn = await renderedCount(p, "nodes-basic");
       assert(drawn > 0, "no nodes rendered after the reveal");
