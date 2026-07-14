@@ -508,7 +508,7 @@ export default function App() {
                 <>
                   <button
                     onClick={() => setGapVisible((v) => !v)}
-                    title="Halo every institution that cannot reach its next level within the distance threshold."
+                    title="Rings every institution that can't reach its next level within the distance you set."
                     className={`text-xs rounded px-2.5 py-1 border transition-all ${
                       gapVisible
                         ? "bg-amber-500 text-white border-transparent"

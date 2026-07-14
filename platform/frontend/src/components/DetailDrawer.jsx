@@ -23,15 +23,19 @@ function PathwayVerdict({ node, thresholdKm, nearestIndex }) {
           <div key={key} className="flex items-start gap-2 text-[11px]">
             <span
               className="w-2.5 h-2.5 rounded-full shrink-0 mt-[3px]"
-              style={{ backgroundColor: STATUS_STYLE[status].fill }}
+              // `.color`, not `.fill`. STATUS_STYLE lost its `fill` key when the verdict
+              // stopped being the node's fill and became a highlight instead; this read
+              // silently returned undefined, so the swatch rendered with no colour at all.
+              style={{ backgroundColor: STATUS_STYLE[status].color }}
             />
             <span className="flex-1 leading-snug">
               <span className="font-medium text-gray-700">{p.label}</span>
               <span className="text-gray-500">
-                {status === "complete" && ` — reaches ${p.ends} in hops of ${thresholdKm} km.`}
+                {status === "complete" &&
+                  `: reaches ${p.ends}, moving ${thresholdKm} km or less at each step.`}
                 {status === "deadend" &&
-                  ` — has a next step, but the chain from here never reaches ${p.ends}.`}
-                {status === "cut" && ` — no next step at all within ${thresholdKm} km.`}
+                  `: there is a next step, but the path from here never reaches ${p.ends}.`}
+                {status === "cut" && `: no next step at all within ${thresholdKm} km.`}
               </span>
             </span>
           </div>
@@ -197,9 +201,9 @@ export default function DetailDrawer({
                 <span aria-hidden="true">→</span>
               </button>
               <p className="mt-1 text-[10px] leading-snug text-gray-400">
-                Switches to the map and zooms to this institution. It stays selected, so its
-                accessibility edges are already drawn when you land. “Network” in the header
-                brings you back.
+                Switches to the map and zooms in on this institution. It stays selected, so its
+                connections are already drawn when you get there. Use “Network” in the header to
+                come back.
               </p>
             </div>
           )}
@@ -285,8 +289,8 @@ export default function DetailDrawer({
                   })}
                 </div>
                 <p className="text-[10px] text-gray-400 leading-snug mt-2">
-                  Routed road distance (OSRM), nearest anywhere in the country — not limited
-                  to the area you have loaded. “—” means none reachable by road.
+                  Road distance to the nearest one anywhere in the country, not just the area
+                  you loaded. A dash means there’s nothing reachable by road.
                 </p>
               </div>
             </>

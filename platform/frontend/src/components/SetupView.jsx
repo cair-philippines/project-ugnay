@@ -59,8 +59,8 @@ function Preamble({ compact = false }) {
       </div>
 
       <p className={`mt-3 ${lead} leading-relaxed text-blue-50`}>
-        See where a learner can keep going —{" "}
-        <span className="font-semibold text-white">and where the next step isn’t there.</span>
+        See where a learner can keep going, and{" "}
+        <span className="font-semibold text-white">where the next step isn’t there.</span>
       </p>
 
       {!compact && (
@@ -76,8 +76,8 @@ function Preamble({ compact = false }) {
         <li className="flex gap-2.5">
           <span className="text-blue-300 mt-px">→</span>
           <span>
-            <span className="font-semibold text-white">Pick an area</span> — a region, a
-            province, a single city.
+            <span className="font-semibold text-white">Pick an area</span>: a region, a
+            province, or a single city.
           </span>
         </li>
         <li className="flex gap-2.5">
@@ -85,8 +85,8 @@ function Preamble({ compact = false }) {
           <span>
             <span className="font-semibold text-white">Tap an institution</span> to see what’s
             within reach <span className="whitespace-nowrap">by road</span> that offers
-            something it doesn’t — the next grade level, a university, a technical &amp; vocational
-            program.
+            something it doesn’t: the next grade level, a university, or a technical and
+            vocational program.
           </span>
         </li>
         <li className="flex gap-2.5">
@@ -124,9 +124,9 @@ function Preamble({ compact = false }) {
         {/* The honest caveat, up front rather than buried in the legend. It is the one
             sentence that stops the map being misread. */}
         <p className={`${compact ? "mt-3" : "mt-5"} text-[11px] leading-relaxed text-blue-200/50`}>
-          Distances are <span className="text-blue-100/80">routed road distances</span>, not
-          straight lines. This map shows what is{" "}
-          <span className="text-blue-100/80">within reach</span> — not who actually enrols.
+          Distances are <span className="text-blue-100/80">road distances</span>, not straight
+          lines. This map shows what’s{" "}
+          <span className="text-blue-100/80">within reach</span>, not who actually enrolls.
         </p>
       </div>
     </div>
@@ -180,10 +180,10 @@ export default function SetupView({
   const scopeHint = !selectedRegion
     ? "Pick a region"
     : selectedProvinces.length >= 2
-      ? `Province-wide — all institutions across ${selectedProvinces.length} provinces`
+      ? `Province-wide: all institutions across ${selectedProvinces.length} provinces`
       : selectedProvinces.length === 1
         ? selectedMunicipalities.length >= 1
-          ? `Municipal view — ${selectedMunicipalities.length} municipality/ies`
+          ? `Municipal view: ${selectedMunicipalities.length} municipality/ies`
           : "Whole province (all municipalities)"
         : "Pick at least one province";
 

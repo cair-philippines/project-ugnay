@@ -101,6 +101,13 @@ jobs:
       - name: Verify tiles satisfy the frontend's data contract
         run: node scripts/check_tile_contract.mjs platform/frontend/dist/tiles
 
+      # Copy lint. Em dashes in rendered text read as machine-written, and the app had sixteen
+      # of them; it was also mixing British and American spelling inside a single panel
+      # ("Colour by sector" directly above "Colorblind-safe palette"), which is a worse
+      # credibility problem than the dashes. Cheap to check, easy to regress.
+      - name: Lint user-facing copy
+        run: node scripts/check_copy.mjs platform/frontend/src
+
       - name: Deploy to Firebase Hosting
         run: npx --yes firebase-tools@15 deploy --only hosting --project ecair-eics-project --non-interactive
         env:

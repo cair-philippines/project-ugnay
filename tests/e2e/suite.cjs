@@ -191,7 +191,7 @@ const sliderFor = (p, label) =>
       const checked = await p.locator("input[type=checkbox]:checked").count();
       assert(checked === after, `expected all provinces checked by default (${checked}/${after})`);
       const txt = await p.locator("body").innerText();
-      assert(/Province-wide — all institutions across 7 provinces/.test(txt), "scope hint wrong: expected Province-wide/7");
+      assert(/Province-wide: all institutions across 7 provinces/.test(txt), "scope hint wrong: expected Province-wide/7");
       const picker = await p.evaluate(() => {
         const lab = [...document.querySelectorAll("label")].find((e) =>
           e.textContent.includes("Municipality / City")
@@ -247,8 +247,8 @@ const sliderFor = (p, label) =>
       await p.locator("label").filter({ hasText: /^La Trinidad$/ }).locator("input[type=checkbox]").check();
       await p.waitForTimeout(400);
       const txt2 = await p.locator("body").innerText();
-      assert(/Municipal view — 1 municipality\/ies/.test(txt2), "expected 'Municipal view — 1'");
-      return "picker active; 'Municipal view — 1 municipality/ies'";
+      assert(/Municipal view: 1 municipality\/ies/.test(txt2), "expected 'Municipal view: 1'");
+      return "picker active; 'Municipal view: 1 municipality/ies'";
     });
 
     await T("T1.4", "Select all / Clear provinces + Explore disables at zero", async () => {
@@ -889,8 +889,10 @@ const sliderFor = (p, label) =>
     );
     assert(clipped.length === 0, `sector labels are clipped: ${JSON.stringify(clipped)}`);
     const txt = await p.locator("body").innerText();
-    assert(/Higher Ed — Public/.test(txt) && /Higher Ed — Private/.test(txt),
-      "the full 'Higher Ed — Public/Private' labels are not rendered");
+    // Copy note: these labels used to be "Higher Ed — Public". The em dash was replaced
+    // platform-wide (it reads as machine-written), so the assertion follows the copy.
+    assert(/Higher Ed \(Public\)/.test(txt) && /Higher Ed \(Private\)/.test(txt),
+      "the full 'Higher Ed (Public)/(Private)' labels are not rendered");
     return "full sector names shown (no '…' truncation)";
   });
 

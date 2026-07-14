@@ -15,8 +15,8 @@ import ShapeMark from "./ShapeMark";
 const SECTORS = [
   ["public", "DepEd Public"],
   ["private", "DepEd Private"],
-  ["hei_public", "Higher Ed — Public"],
-  ["hei_private", "Higher Ed — Private"],
+  ["hei_public", "Higher Ed (Public)"],
+  ["hei_private", "Higher Ed (Private)"],
   ["tesda", "TESDA"],
 ];
 
@@ -52,7 +52,7 @@ function Def({ term, children }) {
 export function LegendBody({ sectorColors, nodeShapes, gapVisible, thresholdKm }) {
   return (
     <div className="text-xs">
-      <SectionLabel className="mb-1.5">Shape + fill = sector</SectionLabel>
+      <SectionLabel className="mb-1.5">Shape and fill show the sector</SectionLabel>
       <div className="space-y-1">
         {SECTORS.map(([k, label]) => (
           <div key={k} className="flex items-center gap-2.5 text-gray-700">
@@ -76,11 +76,11 @@ export function LegendBody({ sectorColors, nodeShapes, gapVisible, thresholdKm }
             </div>
           </div>
           <p className="mt-1.5 text-[11px] leading-relaxed text-gray-500">
-            A haloed <span className="font-medium text-gray-700">TESDA</span> node is a training
-            provider with no assessment center in reach. Matching is{" "}
-            <span className="font-medium text-gray-700">role-based only</span> — it does not check
-            that the center assesses the qualification actually trained for, so it{" "}
-            <span className="font-medium text-gray-700">understates</span> the true gap.
+            A ringed <span className="font-medium text-gray-700">TESDA</span> node is a training
+            provider with no assessment center in reach. We only check that a center{" "}
+            <span className="font-medium text-gray-700">offers assessment</span>, not that it
+            assesses the qualification the learner trained for, so this{" "}
+            <span className="font-medium text-gray-700">understates</span> the real gap.
           </p>
         </div>
       )}
@@ -93,27 +93,28 @@ export function LegendBody({ sectorColors, nodeShapes, gapVisible, thresholdKm }
             <span className="font-medium text-gray-800">{thresholdKm} km by road</span> that offers
             something it doesn’t.
           </Def>
-          <Def term="Edge colour">what it connects you to.</Def>
-          <Def term="Thickness">nearness — thicker is closer.</Def>
+          <Def term="Line color">what it connects you to.</Def>
+          <Def term="Thickness">how close it is: thicker means nearer.</Def>
         </div>
       </div>
 
       {/* The honesty band. An accent rule and a heading, because these are limits on what the
           map may be used to claim — not footnotes. */}
       <div className="mt-3 pt-3 border-t border-gray-200">
-        <SectionLabel className="mb-1.5 text-slate-500">What this does not say</SectionLabel>
+        <SectionLabel className="mb-1.5 text-slate-500">What this doesn’t tell you</SectionLabel>
         <div className="border-l-2 border-slate-300 pl-2.5 space-y-1.5 text-[11px] leading-relaxed text-gray-500">
           <p>
-            Distances are <span className="font-medium text-gray-700">routed road distances</span>{" "}
-            (OSRM) — how far you must actually travel, not how far it looks.
+            Distances are <span className="font-medium text-gray-700">road distances</span>: how
+            far you’d actually have to travel, not how far it looks.
           </p>
           <p>
             A line means two institutions are{" "}
-            <span className="font-medium text-gray-700">connected</span> — not the route taken.
+            <span className="font-medium text-gray-700">connected</span>, not that it’s the route a
+            learner would take.
           </p>
           <p>
-            Road distance is <span className="font-medium text-gray-700">not</span> travel time,
-            cost, or safety, and says nothing about whether anyone actually enrolls.
+            Road distance isn’t travel time, cost, or safety, and it says nothing about whether
+            anyone actually enrolls.
           </p>
         </div>
       </div>

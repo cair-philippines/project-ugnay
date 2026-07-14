@@ -79,7 +79,7 @@ export default function GeoPicker({
           value={selectedRegion || ""}
           onChange={(e) => onRegionChange(e.target.value || null)}
         >
-          <option value="">— select region —</option>
+          <option value="">Select a region</option>
           {regions.map((r) => (
             <option key={r} value={r}>{r}</option>
           ))}

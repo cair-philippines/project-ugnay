@@ -701,6 +701,19 @@ Both measure **spread**, not ink: a collapsed graph still has pixels, it is just
 
 ---
 
+## Copy rules (enforced, `scripts/check_copy.mjs`, CI)
+
+Two rules, both of which the app broke:
+
+1. **No em dashes in rendered text.** They are the most reliable tell that a sentence was written by a machine, and there were **sixteen** of them across the setup screen, both legends, the filter panel and the detail drawer. Use a colon, comma, period or parentheses. (A lone `—` as a "no data" glyph in a table cell is allowed.)
+2. **US English.** The app couldn't decide which side of the Atlantic it was on: `Assessment centre` in `lib/graph.js` while `InstitutionCard` said `Assessment center`, and **"Colour by sector" sitting directly above "Colorblind-safe palette" in the same panel.** That is a worse credibility problem than the dashes. House style: center, color, gray, neighbor, enroll.
+
+The lint checks **rendered** text only (JSX text nodes, `title`/`aria-label`/`placeholder`). Comments can say whatever they like. Verified by sabotage: reintroducing one `colour` and one em dash makes it exit non-zero.
+
+Beyond the mechanical rules, the voice is **casual-professional** — contractions, plain nouns, short declaratives, and **no meta-commentary**. Copy that told the reader what was significant ("the clusters and the loose specks are already the finding", "Nothing is highlighted yet — that is the point") has been removed. Say the thing; let the reader decide what it means.
+
+---
+
 ## Accessibility rule (enforced, T1.2)
 
 **No `aria-hidden` container may contain focusable controls.** A collapsed panel that is merely *clipped* keeps its checkboxes, sliders and buttons in the tab order and the accessibility tree — so a keyboard or screen-reader user lands inside a panel that, as far as they have been told, does not exist. (This is also a plain ARIA violation.) Every collapsible here — the filter panel body, the Legend body, the GeoPicker's province/municipality sections, and the closed detail drawer — is `inert` when hidden. The test walks the DOM and fails on any `aria-hidden="true"` element that still contains an `input`, `button`, `select`, `textarea`, link, or positive `tabindex`.

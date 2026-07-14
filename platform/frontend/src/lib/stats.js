@@ -57,7 +57,7 @@ function gapMessage(own, nearest, thresholdKm, status) {
   }
   return {
     tone: "amber",
-    text: `No ${names} within ${thresholdKm} km by road — nearest is ${best.toFixed(1)} km.`,
+    text: `No ${names} within ${thresholdKm} km by road. The nearest is ${best.toFixed(1)} km away.`,
   };
 }
 

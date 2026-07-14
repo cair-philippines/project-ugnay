@@ -890,8 +890,8 @@ export default function NetworkView({
         {!isMobile && (
           <div className="bg-white/95 backdrop-blur shadow rounded-lg px-3 py-2 text-[11px] text-gray-600 pointer-events-auto">
             Can a learner starting here reach{" "}
-            <span className="font-semibold text-gray-800">{PATHWAYS[pathway].ends}</span>, in
-            hops of {thresholdKm} km or less?
+            <span className="font-semibold text-gray-800">{PATHWAYS[pathway].ends}</span>, moving{" "}
+            {thresholdKm} km or less at each step?
           </div>
         )}
       </div>
@@ -940,7 +940,7 @@ export default function NetworkView({
                   title={
                     on
                       ? `Stop highlighting “${STATUS_STYLE[s].label}”`
-                      : `Highlight “${STATUS_STYLE[s].label}” — the rest fade back`
+                      : `Highlight “${STATUS_STYLE[s].label}” and dim the rest`
                   }
                   className={`w-full rounded-md border transition-all ${
                     isMobile
@@ -996,9 +996,9 @@ export default function NetworkView({
           <div className="mt-1.5 pt-1.5 border-t border-gray-100 text-[10px] leading-snug text-gray-400 px-0.5">
             {nothingOn ? (
               <>
-                Nothing is highlighted yet — that is the point.{" "}
-                <span className="text-gray-600 font-medium">Pick a verdict</span> above, or
-                colour a sector in the panel.
+                Nothing highlighted yet.{" "}
+                <span className="text-gray-600 font-medium">Pick a verdict</span> above, or color
+                a sector in the panel.
               </>
             ) : (
               <>{counts.na} not on this pathway</>
@@ -1013,9 +1013,9 @@ export default function NetworkView({
             No pathway verdicts in these tiles
           </div>
           <p className="text-[11px] leading-relaxed">
-            The tiles loaded here were built before the progression stage (S7), so they carry
-            no chain verdict. The structure below is real, but no institution can be judged
-            because the answer simply isn’t in the data.{" "}
+            The tiles loaded here were built before the progression stage (S7), so they don’t
+            carry a verdict for any institution. The graph below is real, but the pathway
+            answers aren’t in the data, so nothing can be judged.{" "}
             <span className="font-medium">
               Re-run <code>scripts/s7_progression_chains.py</code> and{" "}
               <code>scripts/s6_tile_slicer.py</code>, then re-upload the tiles.

@@ -49,7 +49,7 @@ export const PATHWAYS = {
   },
   techvoc: {
     label: "Tech-Voc",
-    ends: "an assessment centre",
+    ends: "an assessment center",
     steps: new Set(["jhs", "shs", "tesda_training", "tesda_assessment"]),
   },
 };

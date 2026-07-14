@@ -52,8 +52,8 @@ const SECTOR_KEYS = ["basic", "higher", "techvoc"];
 const SECTOR_SWATCHES = [
   ["public", "DepEd Public"],
   ["private", "DepEd Private"],
-  ["hei_public", "Higher Ed — Public"],
-  ["hei_private", "Higher Ed — Private"],
+  ["hei_public", "Higher Ed (Public)"],
+  ["hei_private", "Higher Ed (Private)"],
   ["tesda", "TESDA"],
 ];
 
@@ -159,7 +159,7 @@ function VerdictFilter({ netVerdicts, onToggleVerdict, thresholdKm, pathwayEnds 
         })}
       </div>
       <p className="text-[10px] text-gray-400 leading-snug mt-1.5">
-        Lights the matching institutions and fades the rest back — it does not remove them.
+        Highlights the matching institutions and dims the rest. Nothing is removed.
       </p>
     </div>
   );
@@ -169,7 +169,7 @@ function SectorColourFilter({ netFills, onToggleFill, onToggleGroup, sectorColor
   return (
     <div>
       <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide mb-1.5">
-        Colour by sector
+        Color by sector
       </div>
       <div className="space-y-2">
         {SECTOR_GROUPS.map((g) => {
@@ -229,8 +229,8 @@ function SectorColourFilter({ netFills, onToggleFill, onToggleGroup, sectorColor
         })}
       </div>
       <p className="text-[10px] text-gray-400 leading-snug mt-1.5">
-        Same colours as the map. Sectors you haven’t picked stay grey — they are still there,
-        still holding the graph together.
+        Same colors as the map. Sectors you haven’t picked stay gray, but they’re still in the
+        graph.
       </p>
     </div>
   );
@@ -433,12 +433,38 @@ export default function FilterPanel({
                   way to make people think a grey node had been filtered out. */}
               {isNetwork && (
                 <div className="px-3 py-2.5 space-y-3">
-                  <VerdictFilter
-                    netVerdicts={netVerdicts}
-                    onToggleVerdict={onToggleVerdict}
-                    thresholdKm={thresholdKm}
-                    pathwayEnds={pathwayEnds}
-                  />
+                  {/* The threshold comes FIRST here, unlike on the map. It is not one filter
+                      among several in this view: it defines what a "step" is, so it redraws
+                      every line and recalculates every verdict the other controls then act on.
+                      Left in its usual place at the bottom it fell below the fold of the
+                      panel's scroll area, which put the most consequential control in the
+                      view behind a scroll. */}
+                  <div>
+                    <div className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide mb-1.5">
+                      One step
+                    </div>
+                    <Slider
+                      label="Road distance"
+                      value={thresholdKm}
+                      unit=" km"
+                      min={1}
+                      max={5}
+                      onChange={onThreshold}
+                      ticks={[1, 2, 3, 4, 5]}
+                    />
+                    <p className="text-[10px] text-gray-400 leading-snug mt-1">
+                      How far a learner can travel in a single step. Changing it redraws every
+                      line and recalculates every verdict.
+                    </p>
+                  </div>
+                  <div className="pt-3 border-t border-gray-100">
+                    <VerdictFilter
+                      netVerdicts={netVerdicts}
+                      onToggleVerdict={onToggleVerdict}
+                      thresholdKm={thresholdKm}
+                      pathwayEnds={pathwayEnds}
+                    />
+                  </div>
                   <div className="pt-3 border-t border-gray-100">
                     <SectorColourFilter
                       netFills={netFills}
@@ -599,37 +625,31 @@ export default function FilterPanel({
                 })}
               </div>
 
-              {/* The threshold governs the edges, the gap halos AND the chain verdicts —
-                  it's a data control, not a cosmetic one, so it lives with the filters and
-                  stays in BOTH views. */}
-              <div className="px-3 py-2 border-t border-gray-100">
-                <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
-                  Accessibility
+              {/* The threshold is a data control, not a cosmetic one, so it lives with the
+                  filters in both views. In the NETWORK it is rendered at the top of the block
+                  above instead — it defines what a step is there, so it outranks everything
+                  else in the panel. */}
+              {!isNetwork && (
+                <div className="px-3 py-2 border-t border-gray-100">
+                  <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
+                    Accessibility
+                  </div>
+                  <Slider
+                    label="Road distance threshold"
+                    value={thresholdKm}
+                    unit=" km"
+                    min={1}
+                    max={5}
+                    onChange={onThreshold}
+                    ticks={[1, 2, 3, 4, 5]}
+                  />
+                  <p className="text-[10px] text-gray-400 leading-snug mt-1">
+                    {isMobile ? "Tap" : "Click"} an institution to see everything within this{" "}
+                    <span className="font-semibold">road distance</span> that offers something it
+                    doesn’t.
+                  </p>
                 </div>
-                <Slider
-                  label="Road distance threshold"
-                  value={thresholdKm}
-                  unit=" km"
-                  min={1}
-                  max={5}
-                  onChange={onThreshold}
-                  ticks={[1, 2, 3, 4, 5]}
-                />
-                <p className="text-[10px] text-gray-400 leading-snug mt-1">
-                  {isNetwork ? (
-                    <>
-                      One hop of the chain. Every edge in the graph — and every verdict — is
-                      re-drawn at this <span className="font-semibold">road distance</span>.
-                    </>
-                  ) : (
-                    <>
-                      {isMobile ? "Tap" : "Click"} an institution to see everything within this{" "}
-                      <span className="font-semibold">road distance</span> that offers something
-                      it doesn’t.
-                    </>
-                  )}
-                </p>
-              </div>
+              )}
             </>
           )}
 
@@ -671,10 +691,10 @@ export default function FilterPanel({
               </label>
 
               <div>
-                <div className="text-xs text-gray-500 mb-1">Sector colour &amp; shape</div>
+                <div className="text-xs text-gray-500 mb-1">Sector color &amp; shape</div>
                 <p className="text-[10px] text-gray-400 leading-snug mb-1.5">
-                  Shape is a second channel: it survives printing in black and white, and stays
-                  readable where two sectors sit on top of each other.
+                  Shape backs up color, so the map still works printed in black and white, and
+                  stays readable where two sectors overlap.
                 </p>
                 {/* Two rows per sector, not one. On one row the swatch + label + four
                     shape toggles need ~280px, and the panel is 256 — so "Higher Ed —

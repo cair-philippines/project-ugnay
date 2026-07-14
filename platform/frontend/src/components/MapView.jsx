@@ -435,7 +435,7 @@ export default function MapView({
 
     const onLost = (e) => {
       e.preventDefault(); // without this the context can never be restored
-      console.warn("MAPLIBRE: WebGL context lost — attempting recovery");
+      console.warn("MAPLIBRE: WebGL context lost, attempting recovery");
       restoreTimer = setTimeout(() => onContextLost?.(), 1500);
     };
     const onRestored = () => {

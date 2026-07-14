@@ -38,8 +38,8 @@ export function fillKey(n) {
 export const SECTOR_LABEL = {
   public: "DepEd Public",
   private: "DepEd Private",
-  hei_public: "Higher Ed — Public",
-  hei_private: "Higher Ed — Private",
+  hei_public: "Higher Ed (Public)",
+  hei_private: "Higher Ed (Private)",
   tesda: "TESDA",
 };
 
@@ -225,7 +225,7 @@ export function requirementsOf(own) {
   if (own.has("es")) reqs.push({ label: "Junior High", any: ["jhs"] });
   if (own.has("jhs")) reqs.push({ label: "Senior High", any: ["shs"] });
   if (own.has("shs")) reqs.push({ label: "Higher Ed or TESDA", any: ["hei", "tesda_training"] });
-  if (own.has("tesda_training")) reqs.push({ label: "Assessment centre", any: ["tesda_assessment"] });
+  if (own.has("tesda_training")) reqs.push({ label: "Assessment center", any: ["tesda_assessment"] });
   return reqs.filter((r) => !r.any.some((t) => own.has(t))); // satisfied in-house → no gap
 }
 
