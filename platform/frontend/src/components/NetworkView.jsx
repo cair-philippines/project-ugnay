@@ -297,52 +297,120 @@ export default function NetworkView({
     [nodes]
   );
 
-  const dragRef = useRef(null);
+  // --- pointers: one finger pans, two pinch-zoom, a tap selects ---
+  //
+  // The canvas sets `touch-action: none`, which is what stops a drag from scrolling the page
+  // — but it also disables the browser's native pinch-zoom. So on a phone, zoom only exists
+  // if we implement it, and without zoom the view is useless there: at 390px wide a settled
+  // province is a cloud of 4px dots, and the whole point is to inspect the broken ones.
+  const pointersRef = useRef(new Map());
+  const gestureRef = useRef(null);
 
-  const onPointerDown = (e) => {
-    dragRef.current = { x: e.clientX, y: e.clientY, moved: false, ...viewRef.current };
-    e.currentTarget.setPointerCapture(e.pointerId);
+  const localXY = (e) => {
+    const r = e.currentTarget.getBoundingClientRect();
+    return [e.clientX - r.left, e.clientY - r.top];
   };
 
-  const onPointerMove = (e) => {
-    const rect = e.currentTarget.getBoundingClientRect();
-    const sx = e.clientX - rect.left;
-    const sy = e.clientY - rect.top;
-
-    if (dragRef.current) {
-      const d = dragRef.current;
-      const dx = e.clientX - d.x;
-      const dy = e.clientY - d.y;
-      if (Math.abs(dx) > 3 || Math.abs(dy) > 3) d.moved = true;
-      viewRef.current = { k: d.k, tx: d.tx + dx, ty: d.ty + dy };
-      return;
-    }
-    setHover(pick(sx, sy));
-  };
-
-  const onPointerUp = (e) => {
-    const d = dragRef.current;
-    dragRef.current = null;
-    if (!d || d.moved) return;
-    const rect = e.currentTarget.getBoundingClientRect();
-    const hit = pick(e.clientX - rect.left, e.clientY - rect.top);
-    onNodeClick(hit ? hit.node : null);
-  };
-
-  const onWheel = (e) => {
-    const rect = e.currentTarget.getBoundingClientRect();
-    const sx = e.clientX - rect.left;
-    const sy = e.clientY - rect.top;
+  // Zoom about a fixed screen point — the cursor, or the midpoint between two fingers.
+  // Anchoring anywhere else slides whatever you are looking at out from under you.
+  const zoomAbout = (sx, sy, nextK) => {
     const { k, tx, ty } = viewRef.current;
-    const factor = Math.exp(-e.deltaY * 0.0015);
-    const nk = Math.max(0.05, Math.min(k * factor, 8));
-    // Zoom about the cursor, not the origin — otherwise the thing you are pointing at
-    // slides away from under you.
+    const nk = Math.max(0.05, Math.min(nextK, 8));
     viewRef.current = {
       k: nk,
       tx: sx - ((sx - tx) / k) * nk,
       ty: sy - ((sy - ty) / k) * nk,
     };
+  };
+
+  const startGesture = (e) => {
+    const pts = [...pointersRef.current.values()];
+    if (pts.length === 1) {
+      gestureRef.current = { type: "pan", x: pts[0].x, y: pts[0].y, moved: false, ...viewRef.current };
+    } else if (pts.length >= 2) {
+      const [a, b] = pts;
+      gestureRef.current = {
+        type: "pinch",
+        dist: Math.hypot(a.x - b.x, a.y - b.y) || 1,
+        cx: (a.x + b.x) / 2,
+        cy: (a.y + b.y) / 2,
+        ...viewRef.current,
+      };
+    }
+  };
+
+  const onPointerDown = (e) => {
+    pointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    setHover(null);
+    startGesture(e);
+    // Capture LAST, and never let it take the gesture down with it. `setPointerCapture`
+    // throws NotFoundError for any pointer the browser does not consider active — which
+    // includes every synthetic PointerEvent, so calling it first meant the whole handler
+    // aborted before a single finger was registered and pinch silently did nothing.
+    // Capture is an enhancement (it keeps a drag alive past the canvas edge), not a
+    // precondition, so it must not be able to break panning or zooming.
+    try {
+      e.currentTarget.setPointerCapture(e.pointerId);
+    } catch {
+      /* pointer already released, or synthetic — pan/pinch work regardless */
+    }
+  };
+
+  const onPointerMove = (e) => {
+    const [sx, sy] = localXY(e);
+
+    if (pointersRef.current.has(e.pointerId)) {
+      pointersRef.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    }
+    const g = gestureRef.current;
+    const pts = [...pointersRef.current.values()];
+
+    if (g?.type === "pinch" && pts.length >= 2) {
+      const [a, b] = pts;
+      const dist = Math.hypot(a.x - b.x, a.y - b.y) || 1;
+      const rect = e.currentTarget.getBoundingClientRect();
+      const mx = (a.x + b.x) / 2 - rect.left;
+      const my = (a.y + b.y) / 2 - rect.top;
+      viewRef.current = { k: g.k, tx: g.tx, ty: g.ty };
+      zoomAbout(mx, my, g.k * (dist / g.dist));
+      return;
+    }
+
+    if (g?.type === "pan") {
+      const dx = e.clientX - g.x;
+      const dy = e.clientY - g.y;
+      if (Math.abs(dx) > 3 || Math.abs(dy) > 3) g.moved = true;
+      viewRef.current = { k: g.k, tx: g.tx + dx, ty: g.ty + dy };
+      return;
+    }
+
+    // Hover is a MOUSE affordance. On touch there is no hover — a "hover" would just be the
+    // finger that is already tapping — so the tooltip is suppressed and the tap opens the
+    // drawer instead.
+    if (!isMobile) setHover(pick(sx, sy));
+  };
+
+  const endPointer = (e) => {
+    const g = gestureRef.current;
+    pointersRef.current.delete(e.pointerId);
+
+    // A tap: one pointer, never moved, and no pinch anywhere in the gesture.
+    if (g?.type === "pan" && !g.moved && pointersRef.current.size === 0) {
+      const [sx, sy] = localXY(e);
+      const hit = pick(sx, sy);
+      onNodeClick(hit ? hit.node : null);
+    }
+
+    // Lifting one finger of a pinch leaves the other still down — re-seat the gesture on
+    // what remains, or the view snaps as the survivor is treated as a fresh pan from a
+    // stale origin.
+    gestureRef.current = null;
+    if (pointersRef.current.size > 0) startGesture(e);
+  };
+
+  const onWheel = (e) => {
+    const [sx, sy] = localXY(e);
+    zoomAbout(sx, sy, viewRef.current.k * Math.exp(-e.deltaY * 0.0015));
   };
 
   const settling = progress > 0 && progress < 0.99;
@@ -351,11 +419,21 @@ export default function NetworkView({
     <div ref={wrapRef} className="absolute inset-0 z-10 bg-slate-50 overflow-hidden">
       <canvas
         ref={canvasRef}
+        // Named, because MapView stays mounted UNDERNEATH this view (unmounting it would
+        // throw away its WebGL context) — so a bare `querySelector("canvas")` finds
+        // MapLibre's, not this one. That is not a hypothetical: it silently sent a whole
+        // pinch-zoom test to the wrong canvas.
+        data-testid="network-canvas"
         style={{ width: size.w, height: size.h, touchAction: "none" }}
         className="block cursor-crosshair"
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
-        onPointerUp={onPointerUp}
+        onPointerUp={endPointer}
+        // A finger that leaves the surface, or a gesture the browser steals, fires
+        // `pointercancel` and NOT `pointerup`. Without this the pointer stays in the map
+        // forever and the next touch is treated as the second finger of a pinch that never
+        // happened.
+        onPointerCancel={endPointer}
         onPointerLeave={() => setHover(null)}
         onWheel={onWheel}
       />
@@ -363,13 +441,15 @@ export default function NetworkView({
       {/* Chrome sits BELOW the 48px header (top-14) and clear of the filter panel, which
           owns the top-right corner in both views — the threshold slider lives there and is
           as load-bearing here as it is on the map. */}
-      <div className="absolute top-14 left-3 flex flex-col gap-2 max-w-[250px]">
+      <div className="absolute top-14 left-3 right-3 sm:right-auto flex flex-col gap-2 sm:max-w-[250px] pointer-events-none">
         {/* Pathway lens. The two verdicts are tracked separately, so they are READ
-            separately — an SHS can be complete on one and cut on the other. */}
+            separately — an SHS can be complete on one and cut on the other. This is the one
+            control the view cannot do without, so it stays on-canvas at every size rather
+            than being buried in the sheet. */}
         <div
           role="group"
           aria-label="Pathway"
-          className="flex rounded-lg overflow-hidden shadow bg-white w-fit"
+          className="flex rounded-lg overflow-hidden shadow bg-white w-fit pointer-events-auto"
         >
           {Object.entries(PATHWAYS).map(([key, p]) => (
             <button
@@ -379,7 +459,10 @@ export default function NetworkView({
               // job — so this one says what it actually switches.
               aria-label={`${p.label} pathway`}
               title={`Can a learner reach ${p.ends}?`}
-              className={`px-3 py-1.5 text-xs font-medium transition-colors ${
+              className={`px-3 text-xs font-medium transition-colors ${
+                // A 44px target on touch; the desktop control can be tighter.
+                isMobile ? "py-2.5 min-h-[44px]" : "py-1.5"
+              } ${
                 pathway === key
                   ? "bg-slate-800 text-white"
                   : "bg-white text-gray-500 hover:bg-gray-50"
@@ -389,47 +472,85 @@ export default function NetworkView({
             </button>
           ))}
         </div>
-        <div className="bg-white/95 backdrop-blur shadow rounded-lg px-3 py-2 text-[11px] text-gray-600">
-          Can a learner starting here reach{" "}
-          <span className="font-semibold text-gray-800">{PATHWAYS[pathway].ends}</span>, in
-          hops of {thresholdKm} km or less?
-        </div>
+        {/* The framing question. Dropped on a phone: it is three lines of prose over a graph
+            that only has ~600px of height to begin with, and the same sentence is the first
+            thing in the legend tab. */}
+        {!isMobile && (
+          <div className="bg-white/95 backdrop-blur shadow rounded-lg px-3 py-2 text-[11px] text-gray-600 pointer-events-auto">
+            Can a learner starting here reach{" "}
+            <span className="font-semibold text-gray-800">{PATHWAYS[pathway].ends}</span>, in
+            hops of {thresholdKm} km or less?
+          </div>
+        )}
       </div>
 
-      {/* The readout. Bottom-RIGHT: the filter panel owns the top-right. The dead-end count
-          is the number the map cannot produce.
-          It slides left of the detail drawer when one opens — the drawer is 18rem and would
-          otherwise bury it, and the counts are exactly what you want to keep an eye on while
-          inspecting a node. */}
+      {/* The readout — the dead-end count is the number the map cannot produce, so it stays
+          visible in both chromes.
+          DESKTOP: bottom-right (the filter panel owns the top-right), sliding left of the
+          detail drawer when one opens rather than being buried by it.
+          MOBILE: lifted clear of the collapsed bottom sheet (44px) and laid out as one row,
+          because a 200px card stacked three-high eats a third of a phone's graph. It hides
+          entirely when the detail sheet is up — that sheet is 60dvh and would cover it
+          anyway, and racing it would just be two panels fighting over one corner. */}
       <div
         data-testid="network-readout"
-        className={`absolute bottom-3 right-3 bg-white/95 backdrop-blur shadow rounded-lg px-3 py-2 min-w-[200px] z-20
-          transition-transform duration-300 ease-out ${
-            selectedNode && !isMobile ? "-translate-x-72" : ""
+        className={`absolute bg-white/95 backdrop-blur shadow rounded-lg px-3 py-2 z-20
+          transition-[transform,opacity] duration-300 ease-out ${
+            isMobile
+              ? `left-3 right-3 bottom-14 ${
+                  selectedNode ? "opacity-0 pointer-events-none translate-y-2" : "opacity-100"
+                }`
+              : `right-3 bottom-3 min-w-[200px] ${selectedNode ? "-translate-x-72" : ""}`
           }`}
       >
         <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-gray-400 mb-1.5">
           {PATHWAYS[pathway].label} pathway · {thresholdKm} km
         </div>
-        {(stale ? ["unknown"] : ["cut", "deadend", "complete"]).map((s) => (
-          <div key={s} className="flex items-center gap-2 text-[11px] py-0.5">
-            <span
-              className="w-2.5 h-2.5 rounded-full shrink-0"
-              style={{ backgroundColor: STATUS_STYLE[s].fill }}
-            />
-            <span className="flex-1 text-gray-600">{STATUS_STYLE[s].label}</span>
-            <span className="tabular-nums font-medium text-gray-800">{counts[s]}</span>
+
+        {isMobile ? (
+          // One row: swatch over count, label beneath. The numbers are what you are here for,
+          // so they get the size; the words shrink to fit around them.
+          <div className="flex items-stretch justify-between gap-2">
+            {(stale ? ["unknown"] : ["cut", "deadend", "complete"]).map((s) => (
+              <div key={s} className="flex-1 min-w-0 text-center">
+                <div className="flex items-center justify-center gap-1.5">
+                  <span
+                    className="w-2.5 h-2.5 rounded-full shrink-0"
+                    style={{ backgroundColor: STATUS_STYLE[s].fill }}
+                  />
+                  <span className="text-sm font-semibold tabular-nums text-gray-800">
+                    {counts[s]}
+                  </span>
+                </div>
+                <div className="text-[10px] leading-tight text-gray-500 truncate">
+                  {STATUS_STYLE[s].label}
+                </div>
+              </div>
+            ))}
           </div>
-        ))}
-        {!stale && counts.na > 0 && (
-          <div className="mt-1 pt-1 border-t border-gray-100 text-[10px] text-gray-400">
-            {counts.na} not on this pathway
-          </div>
+        ) : (
+          <>
+            {(stale ? ["unknown"] : ["cut", "deadend", "complete"]).map((s) => (
+              <div key={s} className="flex items-center gap-2 text-[11px] py-0.5">
+                <span
+                  className="w-2.5 h-2.5 rounded-full shrink-0"
+                  style={{ backgroundColor: STATUS_STYLE[s].fill }}
+                />
+                <span className="flex-1 text-gray-600">{STATUS_STYLE[s].label}</span>
+                <span className="tabular-nums font-medium text-gray-800">{counts[s]}</span>
+              </div>
+            ))}
+            {!stale && counts.na > 0 && (
+              <div className="mt-1 pt-1 border-t border-gray-100 text-[10px] text-gray-400">
+                {counts.na} not on this pathway
+              </div>
+            )}
+          </>
         )}
       </div>
 
       {stale && (
-        <div className="absolute top-14 left-1/2 -translate-x-1/2 z-30 max-w-md bg-violet-50 border border-violet-300 text-violet-900 rounded-lg px-4 py-3 shadow-lg">
+        <div className="absolute top-28 sm:top-14 inset-x-3 sm:inset-x-auto sm:left-1/2 sm:-translate-x-1/2 z-30 sm:max-w-md bg-violet-50 border border-violet-300 text-violet-900 rounded-lg px-4 py-3 shadow-lg">
           <div className="text-xs font-semibold uppercase tracking-wide mb-1">
             No pathway verdicts in these tiles
           </div>

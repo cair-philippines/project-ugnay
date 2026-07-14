@@ -499,6 +499,13 @@ export default function App() {
             basemap={basemap}
             onBasemap={setBasemap}
             uiHidden={uiHidden}
+            // The Legend tab must key off the ACTIVE view: the two use different grammars
+            // (map fill = sector; network fill = verdict), so showing the map's key over a
+            // network graph would be wrong, not merely unhelpful.
+            view={view}
+            pathway={pathway}
+            showReskilling={showReskilling}
+            onToggleReskilling={() => setShowReskilling((v) => !v)}
           />
 
           {/* The network OVERLAYS the map rather than replacing it. Unmounting MapView would

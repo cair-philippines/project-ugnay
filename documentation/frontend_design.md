@@ -217,6 +217,24 @@ No new edge payload ships: a level you *need* next is by definition a level you 
 ### 5B.6 What it shows (Ilocos Norte, 3 km)
 Academic: **213 cut · 198 dead-end · 78 complete** (65 N/A). Tech-voc: **203 · 191 · 143** (17 N/A). The two lenses genuinely disagree — which is the point of tracking them apart.
 
+### 5B.7 Mobile — the same chrome rules as the map (Round 11 — 2026-07-13)
+
+Follows §6A rather than inventing a second pattern: **one bottom sheet**, no floating panels.
+
+- **The legend becomes a tab in the existing sheet**, exactly as the map's does — and it is the legend for the view you are *actually in*. The two grammars differ (map: fill = sector; network: fill = verdict), so showing the map's key over a network graph would be **wrong**, not merely unhelpful. `NetworkLegendBody` is exported for this, mirroring `LegendBody`.
+- **Basemap and Gap Analysis leave the sheet in network view.** A basemap has no terrain to sit under and a halo has no pin to ring. The threshold slider **stays** — it governs the graph as much as the map.
+- **The pathway lens stays on-canvas at every size.** It is the one control the view cannot do without, so it never gets buried in a sheet. 44 px targets on touch.
+- **The readout becomes one row**, lifted clear of the collapsed sheet (44 px). Three stacked 200 px cards would eat a third of a phone's graph. It hides entirely when the detail sheet is up — that sheet is 60dvh and would cover it anyway, and racing it would just be two panels fighting for one corner.
+- **The framing question is dropped on a phone** — three lines of prose over a ~600 px-tall graph, and the same sentence opens the legend tab.
+
+**Pinch-zoom had to be built.** The canvas sets `touch-action: none` (without it, a drag scrolls the page), and that *also* disables native pinch. So on touch, zoom exists only if we implement it — and without zoom the view is useless on a phone: a settled province at 390 px is a cloud of 4 px dots, and inspecting the broken ones is the entire point. One finger pans, two pinch about their midpoint, a tap selects.
+
+**Two bugs worth remembering, both of which made a broken thing look fine:**
+1. `setPointerCapture` was called **before** registering the pointer. It throws `NotFoundError` for any pointer the browser doesn't consider active — including every synthetic one — so the handler aborted before a single finger was recorded and **pinch silently did nothing**. Capture is an enhancement (it keeps a drag alive past the canvas edge), not a precondition: it now runs last, in a `try`.
+2. MapView stays **mounted underneath** this view (§5B.5), so `document.querySelector("canvas")` finds **MapLibre's** canvas, not this one. A whole pinch test was dispatched at the wrong element and reported success. The network canvas now carries `data-testid="network-canvas"`.
+
+Both were caught only because the test asserted the **view changed** (pixel sample before/after) rather than that the events *fired*. A gesture test that checks dispatch is a test that passes on a dead feature.
+
 ---
 
 ## 5A. Round-3 progression-edge design (SUPERSEDED — kept for when progression returns)

@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { LegendBody } from "./Legend";
+import { NetworkLegendBody } from "./NetworkLegend";
 import ShapeMark from "./ShapeMark";
 import { NODE_SHAPES, SHAPE_LABEL } from "../lib/nodeShapes";
 
@@ -157,7 +158,16 @@ export default function FilterPanel({
   basemap,
   onBasemap,
   uiHidden = false,
+  // Which view is active. The Legend tab has to show the legend for the thing you are
+  // actually looking at — the two views use DIFFERENT grammars (on the map, fill is the
+  // sector; in the network, fill is the verdict), so showing the map's key over a network
+  // graph would not be merely unhelpful, it would be wrong.
+  view = "map",
+  pathway,
+  showReskilling,
+  onToggleReskilling,
 }) {
+  const isNetwork = view === "network";
   // The sheet starts CLOSED on mobile (the whole point is an unobstructed map); the
   // desktop panel starts open, where there's room for it.
   const [open, setOpen] = useState(!isMobile);
@@ -288,42 +298,49 @@ export default function FilterPanel({
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-2">
-                    <span className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide w-16 shrink-0">
-                      Basemap
-                    </span>
-                    <div className="flex items-center rounded-md border border-gray-200 overflow-hidden">
-                      {["plain", "satellite", "roads"].map((b) => (
-                        <button
-                          key={b}
-                          onClick={() => onBasemap(b)}
-                          className={`text-xs px-3 py-1.5 capitalize transition-all ${
-                            basemap === b ? "bg-gray-800 text-white" : "bg-white text-gray-500"
+                  {/* A basemap and a gap halo are MAP ideas. In a force layout there is no
+                      terrain to put underneath and no pin to ring, so they leave with the
+                      map rather than sit here inert — same rule as the desktop header. */}
+                  {!isNetwork && (
+                    <>
+                      <div className="flex items-center gap-2">
+                        <span className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide w-16 shrink-0">
+                          Basemap
+                        </span>
+                        <div className="flex items-center rounded-md border border-gray-200 overflow-hidden">
+                          {["plain", "satellite", "roads"].map((b) => (
+                            <button
+                              key={b}
+                              onClick={() => onBasemap(b)}
+                              className={`text-xs px-3 py-1.5 capitalize transition-all ${
+                                basemap === b ? "bg-gray-800 text-white" : "bg-white text-gray-500"
+                              }`}
+                            >
+                              {b}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      <button
+                        onClick={onGapToggle}
+                        className={`w-full text-xs rounded-md px-3 py-2 border transition-all text-left flex items-center justify-between ${
+                          gapVisible
+                            ? "bg-amber-500 text-white border-transparent"
+                            : "bg-white text-gray-600 border-gray-300"
+                        }`}
+                      >
+                        Gap analysis
+                        <span
+                          className={`text-[10px] font-semibold uppercase ${
+                            gapVisible ? "text-white/80" : "text-gray-400"
                           }`}
                         >
-                          {b}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  <button
-                    onClick={onGapToggle}
-                    className={`w-full text-xs rounded-md px-3 py-2 border transition-all text-left flex items-center justify-between ${
-                      gapVisible
-                        ? "bg-amber-500 text-white border-transparent"
-                        : "bg-white text-gray-600 border-gray-300"
-                    }`}
-                  >
-                    Gap analysis
-                    <span
-                      className={`text-[10px] font-semibold uppercase ${
-                        gapVisible ? "text-white/80" : "text-gray-400"
-                      }`}
-                    >
-                      {gapVisible ? "On" : "Off"}
-                    </span>
-                  </button>
+                          {gapVisible ? "On" : "Off"}
+                        </span>
+                      </button>
+                    </>
+                  )}
                 </div>
               )}
 
@@ -477,15 +494,27 @@ export default function FilterPanel({
             </div>
           )}
 
-          {/* MOBILE ONLY: the legend is a tab here rather than a second floating panel. */}
+          {/* MOBILE ONLY: the legend is a tab here rather than a second floating panel —
+              and it is the legend for whichever view you are in. */}
           {tab === "legend" && (
             <div className="px-3 py-2.5">
-              <LegendBody
-                sectorColors={sectorColors}
-                nodeShapes={nodeShapes}
-                gapVisible={gapVisible}
-                thresholdKm={thresholdKm}
-              />
+              {isNetwork ? (
+                <NetworkLegendBody
+                  sectorColors={sectorColors}
+                  nodeShapes={nodeShapes}
+                  pathway={pathway}
+                  thresholdKm={thresholdKm}
+                  showReskilling={showReskilling}
+                  onToggleReskilling={onToggleReskilling}
+                />
+              ) : (
+                <LegendBody
+                  sectorColors={sectorColors}
+                  nodeShapes={nodeShapes}
+                  gapVisible={gapVisible}
+                  thresholdKm={thresholdKm}
+                />
+              )}
             </div>
           )}
         </div>
