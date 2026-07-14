@@ -23,6 +23,7 @@
 // is still right, because the verdict never consults the drawn edges.
 
 import { tokensOf } from "./graph";
+import { S7_NODE_FIELDS } from "./tileContract";
 
 // Mirror of NEXT_LEVELS in scripts/s7_progression_chains.py. The two must agree — a
 // progression edge is only as correct as the weakest copy of this rule (there is a third,
@@ -185,6 +186,10 @@ export function statusCounts(nodes, pathway, thresholdKm, nearestIndex) {
 
 // Are the tiles we loaded old enough to predate S7? If so the whole view is meaningless and
 // must SAY so, rather than drawing an authoritative-looking graph of nothing.
+//
+// Reads the SAME field list CI enforces (lib/tileContract.js), so the browser's idea of a
+// stale tile and the build's idea of one cannot drift apart.
 export function tilesArePreS7(nodes) {
-  return nodes.length > 0 && nodes.every((n) => n.academic_applies === undefined);
+  if (!nodes.length) return false;
+  return nodes.every((n) => S7_NODE_FIELDS.every((f) => n[f] === undefined));
 }

@@ -83,6 +83,21 @@ jobs:
       - name: Build frontend and stage artifacts
         run: bash platform/prepare_deploy.sh
 
+      # Refuse to ship tiles the frontend cannot read.
+      #
+      # This gate exists because the network view once deployed green against a bucket that
+      # still held pre-S7 tiles: `academic_applies` was undefined, so every institution on
+      # screen was reported "not on this pathway" and the readout showed 0 · 0 · 0. Build
+      # green, deploy green, product silently claiming no school in the country has a broken
+      # pathway. Nothing in this pipeline noticed.
+      #
+      # It runs on dist/ — AFTER staging, not before — because dist/ is what actually ships.
+      # A correct bucket plus a bug in prepare_deploy.sh (which has happened: it once forgot
+      # boundaries entirely) still deploys the wrong thing, and only checking the artifact
+      # catches that.
+      - name: Verify tiles satisfy the frontend's data contract
+        run: node scripts/check_tile_contract.mjs platform/frontend/dist/tiles
+
       - name: Deploy to Firebase Hosting
         run: npx --yes firebase-tools@15 deploy --only hosting --project ecair-eics-project --non-interactive
         env:
