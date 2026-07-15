@@ -7,7 +7,67 @@ details: `documentation/deployment.md`.
 
 ---
 
-## 2026-07-14 (latest) — Branding, SEO, and preamble
+## 2026-07-15 (latest) — Network view: directed edges, partial verdict, chain highlight, faster settle
+
+### Added
+- **Directed arrowheads on progression edges.** Filled triangles at the target end of each
+  non-reskilling edge, drawn as a second render pass after the edge lines. Only rendered when
+  zoom `k > 0.35` — below that they would collapse smaller than the line width they are
+  attached to. When chain highlight is active, arrowheads are suppressed for any edge whose
+  source or target is outside the reachable set, because a pointer at a nearly-invisible node
+  would read as contradictory.
+
+- **"Partial" verdict — a fourth pathway verdict.** An SHS with no HEI within the threshold
+  but a TESDA training centre within reach is not cut: the tech-voc door is open, the college
+  door is shut, and those are different policy situations. "Partial" (`#0891B2`,
+  "Alternative pathway") names that gap so it cannot be confused with either outcome.
+  Computed client-side from the existing `nearestIndex` data — no pipeline rerun required.
+  `VERDICTS` is now `["cut", "partial", "deadend", "complete"]`; `STATUS_ORDER` places partial
+  before cut (painted worst-last) so a cut node is never buried under a partial one.
+
+- **SHS → TESDA edges visible in both pathway lenses.** Previously, `shs>tesda_training`
+  edges were absent from the academic view because TESDA training is not an academic step.
+  A `shsBranch` exception in `progressionEdges()` now draws those edges regardless of the
+  active pathway. The rationale: TESDA centres deploy programs to nearby Grade 12 students,
+  and a school can only offer TESDA courses if a centre is within reach — that relationship
+  exists independent of which lens the user has open.
+
+- **"Highlight chain" button in the detail drawer.** Selecting a node in the network view
+  now offers a button that runs a BFS along forward (non-reskilling) edges from that node
+  and dims everything outside the reachable set to **5% opacity**. The verdict filter's 28%
+  dim was tried first; a screenshot confirmed it was indistinguishable from ordinary verdict
+  filtering. At 5% the chain is unmistakable. The button label flips between
+  "Highlight chain" and "Clear highlight"; the highlight resets automatically when the
+  selection changes.
+
+- **Sector filter button color sync.** The three top-panel filter buttons (Basic / Higher /
+  Tech-Voc) now derive their dot color from the live `sectorColors` map instead of a
+  hardcoded Tailwind class. Changing "TESDA" from purple to black in Appearance now updates
+  the Tech-Voc button to match.
+
+### Changed
+- **Legend panel is now tabbed.** The "How to read this" panel previously stacked all four
+  content blocks in a single scrollable column — at smaller screen heights it exceeded the
+  viewport and buried the caveats below a scroll. It now has three tabs: **Verdicts /
+  Sectors / Notes**. Opens on Verdicts. Each tab shows only its own content; the panel
+  height stays compact regardless of screen height.
+
+- **Corrected the TESDA copy in the Notes tab.** The previous text said "Grade 12 students
+  can elect tech-voc instead of college." That reverses the mechanism. TESDA centres deploy
+  their programs to nearby Grade 12 students — a school can only offer TESDA courses if a
+  centre is within reach. The network edge (SHS → TESDA centre) already models this
+  correctly; only the description of it was wrong.
+
+- **Force settle and camera tracking are roughly 3x faster.** `alphaDecay` raised 0.02 →
+  0.028 (simulation ticks: ~342 → ~244, -29%). Camera lerp: factor 0.12 → 0.20, frame skip
+  `% 8` → `% 4` (one update every 67 ms instead of 133 ms). Camera now converges in ~1.5 s
+  instead of ~5 s. Combined with the shorter simulation, the visible zoom-out ends in ~3 s
+  instead of ~10 s. The seeded starting position (from the map's projection) is already a
+  close approximation, so 244 ticks is enough to find clean structure.
+
+---
+
+## 2026-07-14 — Branding, SEO, and preamble
 
 ### Added
 - **Agency logos** (`public/logos/deped.svg` + `ecair.png`) throughout the platform. Brand
@@ -561,7 +621,9 @@ First change shipped through the push-to-deploy CI. Live ~90 s after the push.
 ---
 
 ## Pending
-- **Per-sector node shapes** (circle / square / triangle / diamond) via SDF symbol
-  layers — next change.
-- Custom domain `ugnay.cair.ph`; delete the stray `ecair-eics-project-537f7` project;
-  analytics + privacy review (SPECS §3.5).
+- Custom domain `ugnay.cair.ph` — CNAME exists; Firebase TLS cert pending domain
+  verification. `og:url` and `og:image` already point there.
+- Delete stray `ecair-eics-project-537f7` Firebase project.
+- No favicon yet.
+- Analytics + privacy review (SPECS §3.5).
+- ~115 wrong-province coordinate records need upstream fix in `project_coordinates`.
