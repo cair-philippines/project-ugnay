@@ -40,6 +40,9 @@ const HALO_COLOR = ["match", ["get", "gap"], "red", "#DC2626", "amber", "#F59E0B
 
 // How long the institutions take to fade up once an area has finished loading.
 const REVEAL_MS = 450;
+// Filter/sector toggles: fade out then fade in so nodes don't hard-pop.
+const FILTER_FADE_OUT_MS = 120;
+const FILTER_FADE_IN_MS = 250;
 // The resting alpha of an ordinary node. Now carried in the icon COLOUR's alpha channel,
 // not in icon-opacity — see the note on `revealed`.
 const NODE_ALPHA = 0.92;
@@ -148,6 +151,10 @@ export default function MapView({
   // frame in the container's top-left corner before it is positioned.
   const [popupNode, setPopupNode] = useState(null);
   const [ready, setReady] = useState(false);
+  // "idle" | "fading-out" | "fading-in" — drives a brief cross-fade when a sector or
+  // subcategory filter changes. Idle during area reveals (which use `revealed` directly).
+  const [filterPhase, setFilterPhase] = useState("idle");
+  const filterTimerRef = useRef(null);
   const mapRef = useRef(null);
   const hoverFidRef = useRef(null);
 
@@ -289,8 +296,16 @@ export default function MapView({
   const symbolPaint = useMemo(
     () => ({
       "icon-color": colorExpr,
-      "icon-opacity": revealed ? 1 : 0,
-      "icon-opacity-transition": { duration: revealed ? REVEAL_MS : 0 },
+      "icon-opacity": !revealed ? 0 : filterPhase === "fading-out" ? 0 : 1,
+      "icon-opacity-transition": {
+        duration: !revealed
+          ? 0
+          : filterPhase === "fading-out"
+          ? FILTER_FADE_OUT_MS
+          : filterPhase === "fading-in"
+          ? FILTER_FADE_IN_MS
+          : REVEAL_MS,
+      },
       "icon-halo-color": haloColorExpr,
       // The widths MUST scale with the node size. `icon-halo-width` is divided by
       // `icon-size` inside MapLibre's SDF shader, and if the result exceeds 6 the shader
@@ -304,7 +319,7 @@ export default function MapView({
       ],
       "icon-halo-blur": 0,
     }),
-    [colorExpr, haloColorExpr, selId, nodeSize, revealed]
+    [colorExpr, haloColorExpr, selId, nodeSize, revealed, filterPhase]
   );
 
   const fitKey =
@@ -325,11 +340,10 @@ export default function MapView({
   if (exploreSeq !== seenSeq) {
     setSeenSeq(exploreSeq);
     clearRevealTimers();
+    clearTimeout(filterTimerRef.current);
+    setFilterPhase("idle");
     setRevealed(false);
     setHoverNode(null);
-    // The popup is now KEPT between hovers, so it has to be dropped explicitly here — that is
-    // exactly the stale-node case this block was written for, and leaving it mounted would
-    // reintroduce the top-left flash by the other route.
     setPopupNode(null);
     hoverFidRef.current = null;
   }
@@ -381,6 +395,33 @@ export default function MapView({
   }, [fitKey, loading]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => clearRevealTimers, []);
+
+  // Filter fade: when activeSectors or subcats changes (not an area change, not pre-reveal),
+  // drive a short cross-fade so nodes don't hard-pop. The source data updates immediately
+  // inside React's render, which is fine — new nodes appear at the transition's in-flight
+  // opacity and then complete their fade-in, giving a smoother result than an instant swap.
+  const filterKey = [...activeSectors].sort().join(",") + JSON.stringify(subcats);
+  const prevFilterKey = useRef(filterKey);
+  const isFirstFilterRender = useRef(true);
+  useEffect(() => {
+    if (isFirstFilterRender.current) {
+      isFirstFilterRender.current = false;
+      prevFilterKey.current = filterKey;
+      return;
+    }
+    if (filterKey === prevFilterKey.current) return;
+    prevFilterKey.current = filterKey;
+    if (!revealed) return; // area reveal handles opacity; don't compete with it
+    clearTimeout(filterTimerRef.current);
+    setFilterPhase("fading-out");
+    filterTimerRef.current = setTimeout(() => {
+      setFilterPhase("fading-in");
+      filterTimerRef.current = setTimeout(
+        () => setFilterPhase("idle"),
+        FILTER_FADE_IN_MS
+      );
+    }, FILTER_FADE_OUT_MS);
+  }, [filterKey, revealed]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Waze-style re-center: snap the view back to frame the current area's institutions.
   // Same robust fit the auto-fit uses, but on demand.
@@ -610,11 +651,16 @@ export default function MapView({
   // squarely inside the fade. Waiting for `revealed` costs nothing — the popup only has to
   // exist before the first HOVER, which is hundreds of milliseconds later — and it keeps the
   // fix for the corner flash from being paid for out of the reveal's frame budget.
+  // The popup must NEVER unmount once it has first appeared. Unmounting and remounting
+  // causes MapLibre to create a new popup DOM element which starts at (0,0) — the
+  // top-left corner — for one frame before the library positions it. That is the flash.
+  // Keep it parked on any valid node; visibility is controlled entirely by the --off class.
+  // We do NOT gate on `revealed` here: the popup should be parked (at opacity 0, invisible)
+  // as early as nodes are available so the reveal animation gets no extra DOM work.
   const popupAnchor = useMemo(() => {
     if (popupNode) return popupNode;
-    if (!revealed) return null;
     return nodes.find((n) => Number.isFinite(n.lon) && Number.isFinite(n.lat)) || null;
-  }, [popupNode, nodes, revealed]);
+  }, [popupNode, nodes]);
 
   const popupVisible = showHover && !!popupNode;
 
@@ -725,8 +771,16 @@ export default function MapView({
             "circle-stroke-width": 2.4,
             // Already a constant, so this one always faded. Same directional duration as the
             // nodes it rings, so the two move together.
-            "circle-stroke-opacity": revealed ? 0.9 : 0,
-            "circle-stroke-opacity-transition": { duration: revealed ? REVEAL_MS : 0 },
+            "circle-stroke-opacity": !revealed ? 0 : filterPhase === "fading-out" ? 0 : 0.9,
+            "circle-stroke-opacity-transition": {
+              duration: !revealed
+                ? 0
+                : filterPhase === "fading-out"
+                ? FILTER_FADE_OUT_MS
+                : filterPhase === "fading-in"
+                ? FILTER_FADE_IN_MS
+                : REVEAL_MS,
+            },
           }}
         />
         {/* Hover feedback. The nodes themselves are symbols now and symbols can't read

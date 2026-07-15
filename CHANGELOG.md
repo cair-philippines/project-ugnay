@@ -16,7 +16,29 @@ details: `documentation/deployment.md`.
 
 ---
 
-## v0.4.2 — 2026-07-15 (latest) — Preamble copy, platform versioning
+## v0.4.3 — 2026-07-15 (latest) — Popup flash fix, filter fade transitions
+
+### Fixed
+- **Hover popup no longer flashes at the top-left on "Explore map".** Root cause: the popup
+  was unmounted whenever `revealed = false` (between area changes) and remounted when
+  `revealed = true`. Every time a MapLibre popup mounts, it starts at the container's origin
+  (0,0) for one frame before the library positions it — that is the flash. The popup now
+  stays mounted as long as any valid node exists, parked on the first available node.
+  Visibility is controlled entirely by the `--off` CSS class. This is the same "mount once,
+  always move" principle the original fix used; the regression was introduced when the
+  `if (!revealed) return null` guard caused unmounting on every area change.
+
+### Changed
+- **Sector and subcategory filter toggles now fade nodes instead of hard-popping them.**
+  Toggling Basic / Higher / Tech-Voc sectors, or any sub-level (ES / JHS / SHS / Training /
+  Assessment), previously caused nodes to appear and disappear instantly. They now fade out
+  over 120 ms, the new set fades in over 250 ms. Area reveals are unaffected (450 ms, same
+  as before). The fade uses the same `icon-opacity` mechanism as the reveal; only a constant
+  value is ever written to it, so MapLibre's transition engine can tween it.
+
+---
+
+## v0.4.2 — 2026-07-15 — Preamble copy, platform versioning
 
 ### Added
 - **Platform version displayed in the landing preamble.** A faint `v0.4.2` line below the
