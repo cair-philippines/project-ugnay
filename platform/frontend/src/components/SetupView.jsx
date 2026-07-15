@@ -96,6 +96,14 @@ function Preamble({ compact = false }) {
             where that next step is missing entirely.
           </span>
         </li>
+        <li className="flex gap-2.5">
+          <span className="text-blue-300 mt-px">→</span>
+          <span>
+            <span className="font-semibold text-white">Switch to Network</span> to see the
+            full pathway as a graph: which chains of institutions can reach a university or
+            assessment center, and which dead-end before they get there.
+          </span>
+        </li>
       </ul>
 
       {/* Coverage — the credibility line. A planner's first question is "does this cover my
