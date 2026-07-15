@@ -46,47 +46,12 @@ const HALO_COLOR = ["match", ["get", "gap"], "red", "#DC2626", "amber", "#F59E0B
 
 // How long the institutions take to fade up once an area has finished loading.
 const REVEAL_MS = 450;
-// Filter/sector toggles: fade out then fade in so nodes don't hard-pop.
-const FILTER_FADE_OUT_MS = 120;
-const FILTER_FADE_IN_MS = 250;
 // The resting alpha of an ordinary node. Now carried in the icon COLOUR's alpha channel,
 // not in icon-opacity — see the note on `revealed`.
 const NODE_ALPHA = 0.92;
 
 const SECTOR_KEYS = ["public", "private", "hei_public", "hei_private", "tesda"];
 const SELECTED_HALO_RGB = [30, 41, 59]; // #1e293b
-
-// Drives a single sector layer through fade-out → source update → fade-in. Called once per
-// sector that changed. The midpoint callback is what defers the source update: nodes being
-// removed stay in the source (and on screen, fading) until opacity reaches 0, then the source
-// swaps to the new set and the fade-in begins on the survivors.
-function startSectorFade(setPhase, timerRef, onMidpoint) {
-  clearTimeout(timerRef.current);
-  setPhase("fading-out");
-  timerRef.current = setTimeout(() => {
-    onMidpoint();
-    setPhase("fading-in");
-    timerRef.current = setTimeout(() => setPhase("idle"), FILTER_FADE_IN_MS);
-  }, FILTER_FADE_OUT_MS);
-}
-
-// Builds a per-layer symbol paint from the shared base (colour, halo, width). Only
-// icon-opacity and its transition differ between layers — everything else is the same.
-function makeLayerPaint(base, revealed, phase) {
-  return {
-    ...base,
-    "icon-opacity": !revealed ? 0 : phase === "fading-out" ? 0 : 1,
-    "icon-opacity-transition": {
-      duration: !revealed
-        ? 0
-        : phase === "fading-out"
-        ? FILTER_FADE_OUT_MS
-        : phase === "fading-in"
-        ? FILTER_FADE_IN_MS
-        : REVEAL_MS,
-    },
-  };
-}
 
 function hexToRgb(hex) {
   const h = String(hex).replace("#", "");
@@ -189,20 +154,6 @@ export default function MapView({
   // frame in the container's top-left corner before it is positioned.
   const [popupNode, setPopupNode] = useState(null);
   const [ready, setReady] = useState(false);
-  // displayNodes: the GeoJSON source trails behind the `nodes` prop during filter transitions
-  // so that nodes being removed participate in the fade-out rather than popping instantly.
-  // Outside of filter transitions it is always equal to `nodes`.
-  const [displayNodes, setDisplayNodes] = useState(nodes);
-  const latestNodesRef = useRef(nodes);
-
-  // Per-sector fade phases ("idle" | "fading-out" | "fading-in"). Each node layer is driven
-  // independently so toggling one sector never disturbs the others.
-  const [basicPhase, setBasicPhase] = useState("idle");
-  const [higherPhase, setHigherPhase] = useState("idle");
-  const [techvocPhase, setTechvocPhase] = useState("idle");
-  const basicTimerRef = useRef(null);
-  const higherTimerRef = useRef(null);
-  const techvocTimerRef = useRef(null);
   const mapRef = useRef(null);
   const hoverFidRef = useRef(null);
 
@@ -213,8 +164,8 @@ export default function MapView({
   }, [nodes]);
 
   const nodesFC = useMemo(
-    () => nodesGeoJSON(displayNodes, nearestIndex, thresholdKm, gapVisible, subcats, dimmed),
-    [displayNodes, nearestIndex, thresholdKm, gapVisible, subcats, dimmed]
+    () => nodesGeoJSON(nodes, nearestIndex, thresholdKm, gapVisible, subcats, dimmed),
+    [nodes, nearestIndex, thresholdKm, gapVisible, subcats, dimmed]
   );
 
   // Accessibility edges for the pinned node: everything within the threshold BY ROAD
@@ -330,16 +281,33 @@ export default function MapView({
     [iconExpr, selId, nodeSize]
   );
 
-  // Per-sector reveal and filter fade. Each node layer gets its own paint so toggling one
-  // sector does not alter the opacity of the others. The constant-on-both-sides constraint
-  // on icon-opacity still applies (see the long note above `revealed`).
+  // The whole-layer reveal. A plain number on both sides, so MapLibre really does tween it.
   //
-  // icon-halo-width: widths MUST scale with nodeSize — see lib/nodeShapes.js for why fixed
-  // pixel widths cause the halo-flood bug at the small end of the size slider.
-  const symbolPaintBase = useMemo(
+  // The duration is DIRECTIONAL, and that matters: hiding has to be instantaneous. The tiles
+  // for the new area start landing within a couple of hundred milliseconds, so a 450ms
+  // fade-OUT would still be in flight when they arrive and they would draw at whatever
+  // opacity the fade had reached — the nodes would flicker up as they streamed in and only
+  // then go dark. Snap to 0, fade to 1.
+  //
+  // (Setting the value and its `-transition` in the same paint object is safe: react-map-gl
+  // calls setPaintProperty for each key during the same render, and MapLibre only reads the
+  // transition later, in Style.update() → updateTransitions(). Key order is irrelevant.)
+  //
+  // Filter toggles (sector on/off, subcategory visibility) are deliberately NOT animated at
+  // the layer level: per-node opacity is not achievable in MapLibre without separate sources
+  // per subcategory, and a layer-wide fade incorrectly blinks integrated schools (ES+JHS+SHS)
+  // that are still visible after the toggle. Instant is correct here.
+  const symbolPaint = useMemo(
     () => ({
       "icon-color": colorExpr,
+      "icon-opacity": revealed ? 1 : 0,
+      "icon-opacity-transition": { duration: revealed ? REVEAL_MS : 0 },
       "icon-halo-color": haloColorExpr,
+      // The widths MUST scale with the node size. `icon-halo-width` is divided by
+      // `icon-size` inside MapLibre's SDF shader, and if the result exceeds 6 the shader
+      // floods the whole icon quad with the halo colour — every node grows a translucent
+      // white SQUARE (invisible on the light basemap, glaring on satellite). Fixed pixel
+      // widths did exactly that at the small end of the size slider. See lib/nodeShapes.js.
       "icon-halo-width": [
         "case",
         ["==", ["get", "node_id"], selId], haloWidthSelectedFor(nodeSize + 4),
@@ -347,19 +315,7 @@ export default function MapView({
       ],
       "icon-halo-blur": 0,
     }),
-    [colorExpr, haloColorExpr, selId, nodeSize]
-  );
-  const basicSymbolPaint = useMemo(
-    () => makeLayerPaint(symbolPaintBase, revealed, basicPhase),
-    [symbolPaintBase, revealed, basicPhase]
-  );
-  const higherSymbolPaint = useMemo(
-    () => makeLayerPaint(symbolPaintBase, revealed, higherPhase),
-    [symbolPaintBase, revealed, higherPhase]
-  );
-  const techvocSymbolPaint = useMemo(
-    () => makeLayerPaint(symbolPaintBase, revealed, techvocPhase),
-    [symbolPaintBase, revealed, techvocPhase]
+    [colorExpr, haloColorExpr, selId, nodeSize, revealed]
   );
 
   const fitKey =
@@ -380,12 +336,6 @@ export default function MapView({
   if (exploreSeq !== seenSeq) {
     setSeenSeq(exploreSeq);
     clearRevealTimers();
-    clearTimeout(basicTimerRef.current);
-    clearTimeout(higherTimerRef.current);
-    clearTimeout(techvocTimerRef.current);
-    setBasicPhase("idle");
-    setHigherPhase("idle");
-    setTechvocPhase("idle");
     setRevealed(false);
     setHoverNode(null);
     setPopupNode(null);
@@ -438,58 +388,7 @@ export default function MapView({
     return () => map.off("moveend", onLanded);
   }, [fitKey, loading]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  useEffect(
-    () => () => {
-      clearRevealTimers();
-      clearTimeout(basicTimerRef.current);
-      clearTimeout(higherTimerRef.current);
-      clearTimeout(techvocTimerRef.current);
-    },
-    []
-  );
-
-  // Keep latestNodesRef current. During non-reveal (area loading or pre-first-explore),
-  // sync displayNodes immediately — filter fades only apply when the map is revealed.
-  useEffect(() => {
-    latestNodesRef.current = nodes;
-    if (!revealed) setDisplayNodes(nodes);
-  }, [nodes, revealed]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Per-sector filter fade: when subcats or activeSectors change while the map is revealed,
-  // fade only the affected sector(s) out, defer the source update to the midpoint (so nodes
-  // being removed participate in the fade-out), then fade the survivors back in.
-  const prevSubcatsRef = useRef(subcats);
-  const prevActiveSectorsRef = useRef(activeSectors);
-  const isFirstFilterRef = useRef(true);
-  useEffect(() => {
-    if (isFirstFilterRef.current) {
-      isFirstFilterRef.current = false;
-      prevSubcatsRef.current = subcats;
-      prevActiveSectorsRef.current = activeSectors;
-      return;
-    }
-    const prevSub = prevSubcatsRef.current;
-    const prevSec = prevActiveSectorsRef.current;
-    prevSubcatsRef.current = subcats;
-    prevActiveSectorsRef.current = activeSectors;
-    if (!revealed) return;
-
-    const ser = (s) => JSON.stringify([...(s || new Set())].sort());
-    const basicChanged =
-      prevSec.has("basic") !== activeSectors.has("basic") ||
-      ser(prevSub.basic) !== ser(subcats.basic);
-    const higherChanged =
-      prevSec.has("higher") !== activeSectors.has("higher") ||
-      ser(prevSub.higher) !== ser(subcats.higher);
-    const techvocChanged =
-      prevSec.has("techvoc") !== activeSectors.has("techvoc") ||
-      ser(prevSub.techvoc) !== ser(subcats.techvoc);
-
-    const syncDisplay = () => setDisplayNodes(latestNodesRef.current);
-    if (basicChanged) startSectorFade(setBasicPhase, basicTimerRef, syncDisplay);
-    if (higherChanged) startSectorFade(setHigherPhase, higherTimerRef, syncDisplay);
-    if (techvocChanged) startSectorFade(setTechvocPhase, techvocTimerRef, syncDisplay);
-  }, [subcats, activeSectors, revealed]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => clearRevealTimers, []);
 
   // Waze-style re-center: snap the view back to frame the current area's institutions.
   // Same robust fit the auto-fit uses, but on demand.
@@ -843,29 +742,10 @@ export default function MapView({
             "circle-color": "rgba(0,0,0,0)",
             "circle-stroke-color": HALO_COLOR,
             "circle-stroke-width": 2.4,
-            // The halo spans all sectors, so it uses a combined phase: if any sector is
-            // fading, the halo fades with it. Without this the ring stays visible while its
-            // node disappears, which looks like a stray coloured circle.
-            "circle-stroke-opacity": !revealed
-              ? 0
-              : basicPhase === "fading-out" ||
-                higherPhase === "fading-out" ||
-                techvocPhase === "fading-out"
-              ? 0
-              : 0.9,
-            "circle-stroke-opacity-transition": {
-              duration: !revealed
-                ? 0
-                : basicPhase === "fading-out" ||
-                  higherPhase === "fading-out" ||
-                  techvocPhase === "fading-out"
-                ? FILTER_FADE_OUT_MS
-                : basicPhase === "fading-in" ||
-                  higherPhase === "fading-in" ||
-                  techvocPhase === "fading-in"
-                ? FILTER_FADE_IN_MS
-                : REVEAL_MS,
-            },
+            // Already a constant, so this one always faded. Same directional duration as the
+            // nodes it rings, so the two move together.
+            "circle-stroke-opacity": revealed ? 0.9 : 0,
+            "circle-stroke-opacity-transition": { duration: revealed ? REVEAL_MS : 0 },
           }}
         />
         {/* Hover feedback. The nodes themselves are symbols now and symbols can't read
@@ -892,21 +772,21 @@ export default function MapView({
           type="symbol"
           filter={["in", ["get", "source"], ["literal", ["public", "private"]]]}
           layout={symbolLayout}
-          paint={basicSymbolPaint}
+          paint={symbolPaint}
         />
         <Layer
           id="nodes-higher"
           type="symbol"
           filter={["==", ["get", "source"], "hei"]}
           layout={symbolLayout}
-          paint={higherSymbolPaint}
+          paint={symbolPaint}
         />
         <Layer
           id="nodes-techvoc"
           type="symbol"
           filter={["==", ["get", "source"], "tesda"]}
           layout={symbolLayout}
-          paint={techvocSymbolPaint}
+          paint={symbolPaint}
         />
       </Source>
 

@@ -16,7 +16,22 @@ details: `documentation/deployment.md`.
 
 ---
 
-## v0.4.5 — 2026-07-15 (latest) — Popup flash fix (definitive)
+## v0.4.6 — 2026-07-15 (latest) — Revert filter fade; restore instant filter behavior
+
+### Changed
+- **Sector and subcategory filter toggles are now instant again (no fade).** The per-sector
+  fade introduced in v0.4.4 caused integrated schools (e.g., ES+JHS+SHS) to briefly fade
+  out and back in when any of their subcategories was toggled — even if the school remained
+  visible because it still offered other subcategories. This is a fundamental architectural
+  constraint: MapLibre can only animate `icon-opacity` as a layer-wide constant; per-node
+  fade is not achievable without splitting each subcategory into its own GeoJSON source.
+  Instant is semantically correct: integrated schools that stay visible never blink, and
+  schools that leave the map disappear without misleading animation. The 450ms area-reveal
+  animation is unaffected.
+
+---
+
+## v0.4.5 — 2026-07-15 — Popup flash fix (definitive)
 
 ### Fixed
 - **Hover popup flash eliminated at the root.** Two independent causes, both fixed:
