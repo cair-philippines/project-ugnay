@@ -7,7 +7,37 @@ details: `documentation/deployment.md`.
 
 ---
 
-## 2026-07-15 (latest) — Network view: directed edges, partial verdict, chain highlight, faster settle
+## 2026-07-15 (latest) — Smoother network settle, stable camera, CHED labels, shapes inline
+
+### Changed
+- **Network settle no longer skips frames.** The force worker previously ran up to 6 ticks
+  per frame regardless of simulation phase. During the first ~32 ticks (alpha > 0.35) forces
+  are at their strongest and nodes move the most per tick — 6 ticks in one frame produced
+  position jumps large enough to read as a skipped video frame. The worker now caps to
+  1 tick/frame while alpha is above that threshold, then opens the throttle back to 6 for
+  the convergence tail where per-tick movement is small.
+
+- **Camera no longer drifts during settling.** The previous incremental tracking (lerp toward
+  fit every 4 frames) made the graph appear to slowly zoom out for the full duration of the
+  simulation. Replaced with a two-step approach: on cold entry the camera is fixed at 1.5×
+  more zoomed-out than the seed's fit, so the graph settles within a stable frame; when the
+  worker signals done, the camera eases to the final fit over 600 ms. Panning or zooming
+  during settling cancels the end-ease and preserves the user's position.
+
+- **HEI sector labels renamed to use the agency name.** "Higher Ed (Public)" and
+  "Higher Ed (Private)" are now **"CHED (Public)"** and **"CHED (Private)"** throughout
+  the platform (Layers & Filters, Appearance, network legend Sectors tab, detail drawer).
+  Consistent with DepEd and TESDA, which already use their agency names.
+
+- **Shape picker restored to a single row in Appearance.** The previous release moved shapes
+  to a second line below each sector label to prevent truncation of "Higher Ed (Public/Private)".
+  With the shorter CHED labels that constraint is gone. Shape buttons compacted from 24px to
+  20px (`w-5 h-5`, `gap-px`, ShapeMark size 10), bringing the picker to ~83px, which fits
+  beside the label on one line without truncation.
+
+---
+
+## 2026-07-15 — Network view: directed edges, partial verdict, chain highlight, faster settle
 
 ### Added
 - **Directed arrowheads on progression edges.** Filled triangles at the target end of each
