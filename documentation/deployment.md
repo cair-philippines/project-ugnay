@@ -148,16 +148,56 @@ See `TESTS.md` (T11) for the served-artifact contract check on its own.
 
 ---
 
-## 6. Still to do
+## 6. Branding and SEO (added 2026-07-14)
 
-- **Custom domain `ugnay.cair.ph`:** Hosting → Add custom domain → add the verification + A/AAAA records to the `cair.ph` DNS zone; TLS auto-provisions.
+### Agency logos
+
+Logo files live at `platform/frontend/public/logos/` and are served from `/logos/` on the CDN:
+
+| File | Format | Size | Notes |
+|---|---|---|---|
+| `deped.svg` | SVG | 22 KB | Department of Education |
+| `ecair.png` | PNG | 214 KB | Education Center for AI Research Philippines |
+
+**Brand rule: DepEd always left of ECAIR.** Applied in two places:
+
+- **Landing preamble (`SetupView.jsx`)** — white rounded pill containing both logos, placed above the "Ugnay" title. Sized for desktop (`h-8`) and mobile compact (`h-6`) variants. "This platform is developed by the Education Center for AI Research." appears below the road-distance caveat.
+- **Explore-view header (`App.jsx`)** — both logos rendered at `sm:` breakpoint (≥640 px) and above; hidden on phones where the header is already full. A thin divider separates the logo pair from the "Ugnay" wordmark. The "Education Institutions Map" subtitle moved from `sm:` to `lg:` so logos don't crowd it at 640–1023 px. Hovering the ECAIR logo shows the "developed by" text as a tooltip.
+
+### Open Graph / SEO
+
+`platform/frontend/index.html` carries a full meta-tag set:
+
+- **Standard SEO:** `meta name="description"`, `name="keywords"`, `name="author"`.
+- **Open Graph:** `og:type`, `og:url`, `og:title`, `og:description`, `og:image` (+ `og:image:width` / `og:image:height` for caching hints), `og:site_name`, `og:locale`.
+- **Twitter/X Card:** `twitter:card` (`summary_large_image`), `twitter:title`, `twitter:description`, `twitter:image`.
+
+Discord, Slack, LinkedIn, and Facebook now show a rich preview card when anyone shares the link.
+
+**Canonical URLs** — `og:url` and both image references point to `https://ugnay.cair.ph/`. The image thumbnail will load in Discord once the domain's TLS cert provisions (see §7 below). Title and description show immediately on the `web.app` URL.
+
+### OG social card (`public/og-image.png`)
+
+1200×630 PNG generated programmatically with headless Chromium via `playwright-core`. Content: dark-blue gradient background matching the app's preamble, white pill with DepEd + ECAIR logos, "Ugnay" in 88 px bold, "Education Institutions Map" subtitle, tagline, and `ugnay.cair.ph` domain hint.
+
+**To regenerate** (e.g. after a logo or brand-copy change):
+```bash
+node scripts/gen_og_image.mjs   # writes platform/frontend/public/og-image.png
+```
+Requires the `playwright-core` package in `tests/e2e/node_modules/` and the cached Chromium at `~/.cache/ms-playwright/chromium-*/chrome-linux/chrome`.
+
+---
+
+## 7. Still to do
+
+- **Custom domain `ugnay.cair.ph`:** CNAME exists; Firebase TLS cert pending domain verification (TXT record step). Once resolved, `og:url` and `og:image` in `index.html` already point to the right place.
 - **Delete the stray `ecair-eics-project-537f7`** project (§3.3).
 - **Blaze plan:** employer billing is on the project; currently the free Spark default site suffices. Blaze is only needed for higher egress or a custom-named site.
 - **Analytics + privacy review** (SPECS §3.5).
 
 ---
 
-## 7. References
+## 8. References
 - `firebase_deployment_brief.md` — the pre-deploy plan this runbook realizes.
 - `../CHANGELOG.md` — log of changes since deployment.
 - `TESTS.md` (repo root) — Playwright E2E + served-artifact contract tests.

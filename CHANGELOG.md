@@ -7,7 +7,35 @@ details: `documentation/deployment.md`.
 
 ---
 
-## 2026-07-14 (latest) — a trailing space was killing the map
+## 2026-07-14 (latest) — Branding, SEO, and preamble
+
+### Added
+- **Agency logos** (`public/logos/deped.svg` + `ecair.png`) throughout the platform. Brand
+  rule: **DepEd always left of ECAIR**.
+  - **Landing preamble** (`SetupView.jsx`): white rounded pill above the "Ugnay" title,
+    sized for both desktop and compact (mobile) variants.
+  - **Explore header** (`App.jsx`): logos at `sm:` breakpoint and above; thin divider
+    before the "Ugnay" wordmark. Subtitle moved from `sm:` → `lg:` to reclaim space.
+  - **"This platform is developed by the Education Center for AI Research."** added to the
+    preamble footer.
+- **Network view** added as a fourth bullet in the landing preamble
+  ("Switch to Network to see the full pathway as a graph…").
+- **`public/og-image.png`** — 1200×630 social card generated with headless Chromium
+  (`scripts/gen_og_image.mjs`): dark-blue gradient, DepEd + ECAIR pill, "Ugnay" at 88 px,
+  tagline, `ugnay.cair.ph` domain hint.
+- **Open Graph + SEO tags** in `index.html`: `meta name="description"`, keywords, author;
+  `og:type/url/title/description/image` (+ width/height hints), `og:site_name`,
+  `og:locale`; Twitter Card (`summary_large_image`). Discord/Slack/LinkedIn now show a
+  preview card when the link is shared.
+
+### Changed
+- `og:url` and `og:image` now point to `https://ugnay.cair.ph/` (canonical).
+  The image thumbnail in Discord loads once the domain's TLS cert provisions; title and
+  description show immediately on the `web.app` URL.
+
+---
+
+## 2026-07-14 — a trailing space was killing the map
 
 `Failed to execute 'add' on 'DOMTokenList': The token provided must not be empty.` The whole map
 view, replaced by an error card, right after pressing **Explore map**. Intermittently.
