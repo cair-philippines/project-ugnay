@@ -114,9 +114,8 @@ function Preamble({ compact = false }) {
         <li className="flex gap-2.5">
           <span className="text-blue-300 mt-px">→</span>
           <span>
-            <span className="font-semibold text-white">Switch to Network</span> to see the
-            full pathway as a graph: which chains of institutions can reach a university or
-            assessment center, and which dead-end before they get there.
+            <span className="font-semibold text-white">Switch to Network</span> to see
+            which institution chains complete, and which dead-end.
           </span>
         </li>
       </ul>
@@ -153,6 +152,9 @@ function Preamble({ compact = false }) {
         </p>
         <p className={`${compact ? "mt-2" : "mt-3"} text-[10px] text-blue-200/35`}>
           This platform is developed by the Education Center for AI Research.
+        </p>
+        <p className="mt-1 text-[10px] text-blue-200/25 tabular-nums">
+          {__APP_VERSION__}
         </p>
       </div>
     </div>

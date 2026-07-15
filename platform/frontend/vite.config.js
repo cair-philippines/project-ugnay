@@ -1,8 +1,10 @@
-import { createReadStream, existsSync } from "fs";
+import { createReadStream, existsSync, readFileSync } from "fs";
 import { resolve, join } from "path";
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
+
+const { version } = JSON.parse(readFileSync("./package.json", "utf8"));
 
 // In dev, serve pipeline outputs straight from the output directory.
 // In production (Firebase), these are deployed under /tiles/ and /boundaries/.
@@ -26,6 +28,9 @@ function staticJsonDir(name, mount, dir, fallback, cache = "public, max-age=3600
 }
 
 export default defineConfig({
+  define: {
+    __APP_VERSION__: JSON.stringify(`v${version}`),
+  },
   plugins: [
     react(),
     tailwindcss(),

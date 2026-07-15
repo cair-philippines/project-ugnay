@@ -5,9 +5,34 @@ Notable changes to the Ugnay platform. Newest first. Dates are absolute.
 The live app is **https://ecair-eics-project.web.app** (Firebase Hosting). Deployment
 details: `documentation/deployment.md`.
 
+**Versioning:** `v0.MINOR.PATCH` (SemVer pre-1.0).
+- **PATCH** — fixes, copy edits, refinements, performance improvements.
+- **MINOR** — a new capability: a new view, a new feature set, a new data contract field.
+- **MAJOR** held at 0 while the platform is in active research development and the tile
+  data contract may change. Bumped to 1.0 when the contract and core views are locked.
+- The version lives in `package.json` and is displayed in the landing preamble. The commit
+  that bumps `package.json` is the version commit; it should be the first commit of the
+  entry it belongs to.
+
 ---
 
-## 2026-07-15 (latest) — Smoother network settle, stable camera, CHED labels, shapes inline
+## v0.4.2 — 2026-07-15 (latest) — Preamble copy, platform versioning
+
+### Added
+- **Platform version displayed in the landing preamble.** A faint `v0.4.2` line below the
+  ECAIR credit (`text-[10px]`, `text-blue-200/25`). Version is sourced from `package.json`
+  and inlined at build time via Vite's `define`; updating it requires only a `package.json`
+  bump. See the versioning standard above.
+
+### Changed
+- **"Switch to Network" copy made more concise.** Was: "…to see the full pathway as a graph:
+  which chains of institutions can reach a university or assessment center, and which dead-end
+  before they get there." Now: "…to see which institution chains complete, and which
+  dead-end." Cuts 60% of the word count without losing the signal.
+
+---
+
+## v0.4.1 — 2026-07-15 — Smoother network settle, stable camera, CHED labels, shapes inline
 
 ### Changed
 - **Network settle no longer skips frames.** The force worker previously ran up to 6 ticks
@@ -37,7 +62,7 @@ details: `documentation/deployment.md`.
 
 ---
 
-## 2026-07-15 — Network view: directed edges, partial verdict, chain highlight, faster settle
+## v0.4.0 — 2026-07-15 — Network view: directed edges, partial verdict, chain highlight, faster settle
 
 ### Added
 - **Directed arrowheads on progression edges.** Filled triangles at the target end of each
