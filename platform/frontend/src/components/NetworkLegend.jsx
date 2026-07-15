@@ -3,31 +3,16 @@ import ShapeMark from "./ShapeMark";
 import { PATHWAYS, STATUS_STYLE, VERDICTS, NEUTRAL_FILL } from "../lib/progression";
 import { SECTOR_GROUPS, SECTOR_LABEL } from "../lib/graph";
 
-// Legend for the network view. Same collapsible, bottom-anchored shell as the map's — but a
-// different grammar, and saying so plainly is most of its job.
+// Legend for the network view. Same collapsible, bottom-anchored shell as the map's.
 //
-// On the map, a mark's colour is simply WHAT IT IS. Here, colour is what you ASKED FOR:
-// nothing is coloured and nothing is lit until a filter says so. That is not a stylistic
-// choice, it is the honest one — a graph that answers three questions at once before you
-// have asked any of them is a graph you cannot read.
-//
-// The caveat band is not decoration either. This view makes a strong claim ("this school's
-// pathway goes nowhere"), and a strong claim has to carry its limits with it.
-
-function SectionLabel({ children, className = "" }) {
-  return (
-    <div
-      className={`text-[10px] font-semibold uppercase tracking-[0.08em] text-gray-400 ${className}`}
-    >
-      {children}
-    </div>
-  );
-}
+// Content is split into three tabs (Verdicts / Sectors / Notes) so the panel stays
+// compact. Previously all three blocks were stacked, which made the panel taller than
+// the viewport at smaller screen heights and buried the caveats below a scroll.
 
 const VERDICT_BLURB = {
   cut: (km) => (
     <>
-      <span className="font-medium">Cut:</span> no next step at all within {km} km, and no
+      <span className="font-medium">Cut:</span> no next step within {km} km, and no
       TESDA center reachable either.
     </>
   ),
@@ -42,7 +27,7 @@ const VERDICT_BLURB = {
     <>
       <span className="font-medium">Dead-end:</span> there is a next step, but the path from
       here never reaches {ends}.{" "}
-      <span className="text-gray-500">The map can’t show you this.</span>
+      <span className="text-gray-500">The map can't show you this.</span>
     </>
   ),
   complete: (km, ends) => (
@@ -52,38 +37,31 @@ const VERDICT_BLURB = {
   ),
 };
 
-// The key itself, without the floating shell — reused verbatim as a tab inside the mobile
-// bottom sheet, exactly as the map's LegendBody is. A phone cannot afford a second floating
-// panel; it can afford a tab.
+// The key itself, without the floating shell. Reused as a tab in the mobile bottom sheet.
 export function NetworkLegendBody({ sectorColors, nodeShapes, pathway, thresholdKm }) {
+  const [tab, setTab] = useState("verdicts");
   const ends = PATHWAYS[pathway].ends;
 
   return (
     <div className="text-xs">
-      <p className="text-[11px] leading-relaxed text-gray-600">
-        <span className="font-medium text-gray-800">This isn’t a map.</span> Institutions are
-        pulled together by the pathways between them, so where a dot sits tells you how
-        connected it is, not where it is. A school with nowhere to progress to has nothing
-        pulling it inward, so it drifts out to the edge.
-      </p>
-
-      <div className="mt-2.5 pt-2.5 border-t border-gray-200">
-        <div className="flex items-start gap-2.5 text-[11px] leading-relaxed text-gray-600">
-          <span
-            className="w-3 h-3 rounded-full shrink-0 mt-0.5"
-            style={{ backgroundColor: NEUTRAL_FILL }}
-          />
-          <span>
-            Everything starts gray on purpose. You can already see the shape of things: tight
-            clusters where progression works, scattered dots where it doesn’t. The filters tell
-            you which institutions those scattered dots are.
-          </span>
-        </div>
+      <div className="flex rounded-md overflow-hidden border border-gray-200 mb-3">
+        {[["verdicts", "Verdicts"], ["sectors", "Sectors"], ["notes", "Notes"]].map(([key, label]) => (
+          <button
+            key={key}
+            onClick={() => setTab(key)}
+            className={`flex-1 py-1.5 text-[11px] font-medium transition-colors ${
+              tab === key
+                ? "bg-slate-800 text-white"
+                : "bg-white text-gray-500 hover:bg-gray-50"
+            }`}
+          >
+            {label}
+          </button>
+        ))}
       </div>
 
-      <div className="mt-2.5 pt-2.5 border-t border-gray-200">
-        <SectionLabel className="mb-1.5">Highlight shows the verdict</SectionLabel>
-        <div className="space-y-1 text-gray-700">
+      {tab === "verdicts" && (
+        <div className="space-y-2.5 text-gray-700">
           {VERDICTS.map((v) => (
             <div key={v} className="flex items-start gap-2.5">
               <span
@@ -93,65 +71,78 @@ export function NetworkLegendBody({ sectorColors, nodeShapes, pathway, threshold
                   boxShadow: `inset 0 0 0 1.5px ${STATUS_STYLE[v].color}`,
                 }}
               />
-              <span>{VERDICT_BLURB[v](thresholdKm, ends)}</span>
+              <span className="text-[11px] leading-snug">{VERDICT_BLURB[v](thresholdKm, ends)}</span>
             </div>
           ))}
+          <p className="text-[10px] leading-relaxed text-gray-500 pt-1.5 border-t border-gray-100">
+            Highlighting a verdict{" "}
+            <span className="font-medium text-gray-700">dims the others</span> instead of hiding
+            them, so you can see where the highlighted ones sit relative to everything else.
+          </p>
         </div>
-        <p className="mt-1.5 text-[10px] leading-relaxed text-gray-500">
-          Highlighting a verdict{" "}
-          <span className="font-medium text-gray-700">dims the others</span> instead of hiding
-          them, so you can see where the highlighted ones sit relative to everything else.
-        </p>
-      </div>
+      )}
 
-      <div className="mt-2.5 pt-2.5 border-t border-gray-200">
-        <SectionLabel className="mb-1.5">Fill shows the sector (same as the map)</SectionLabel>
-        <div className="grid grid-cols-2 gap-x-2 gap-y-1">
-          {SECTOR_GROUPS.flatMap((g) => g.fills).map((k) => (
-            <div key={k} className="flex items-center gap-2 text-[11px] text-gray-700">
-              <ShapeMark shape={nodeShapes?.[k] || "circle"} color={sectorColors[k]} size={11} />
-              <span className="truncate">{SECTOR_LABEL[k]}</span>
+      {tab === "sectors" && (
+        <div>
+          <p className="text-[10px] text-gray-500 mb-2">Same colors and shapes as the map.</p>
+          <div className="grid grid-cols-2 gap-x-2 gap-y-1.5">
+            {SECTOR_GROUPS.flatMap((g) => g.fills).map((k) => (
+              <div key={k} className="flex items-center gap-2 text-[11px] text-gray-700">
+                <ShapeMark shape={nodeShapes?.[k] || "circle"} color={sectorColors[k]} size={11} />
+                <span className="truncate">{SECTOR_LABEL[k]}</span>
+              </div>
+            ))}
+          </div>
+          <div className="mt-3 pt-2.5 border-t border-gray-200">
+            <div className="flex items-start gap-2.5 text-[11px] leading-relaxed text-gray-600">
+              <span
+                className="w-3 h-3 rounded-full shrink-0 mt-0.5"
+                style={{ backgroundColor: NEUTRAL_FILL }}
+              />
+              <span>
+                Everything starts gray on purpose. Turn on a sector above to see where each
+                type sits in the graph.
+              </span>
             </div>
-          ))}
+          </div>
         </div>
-      </div>
+      )}
 
-      {/* The caveats stay. This view makes a strong claim about a school's future, and a
-          strong claim has to carry its limits with it. The CONTROLS that used to sit here
-          (the reskilling toggle) have moved to the panel — a legend explains, it does not
-          operate, and having the same switch in two places invited the reading that they were
-          two different switches. */}
-      <div className="mt-2.5 pt-2.5 border-t border-gray-200">
-        <SectionLabel className="mb-1.5 text-slate-500">What this doesn’t tell you</SectionLabel>
-        <div className="border-l-2 border-slate-300 pl-2.5 space-y-1.5 text-[11px] leading-relaxed text-gray-500">
+      {tab === "notes" && (
+        <div className="space-y-2 text-[11px] leading-relaxed text-gray-600">
           <p>
-            Each <span className="font-medium text-gray-700">step</span> has to be within{" "}
-            {thresholdKm} km, but the steps add up. Four of them can still leave a learner a
-            long way from home.
+            <span className="font-medium text-gray-800">This isn't a map.</span> Institutions are
+            pulled together by the pathways between them. Where a dot sits tells you how connected
+            it is, not where it is. A school with nowhere to progress to drifts out to the edge.
           </p>
-          <p>
-            The <span className="font-medium text-gray-700">verdict</span> is calculated across
-            the whole country, so it’s right no matter which area you loaded. The{" "}
-            <span className="font-medium text-gray-700">lines</span> aren’t: they can only
-            connect institutions in your current selection, so a dot near the edge may have
-            neighbors you can’t see.
-          </p>
-          <p>
-            Senior high schools draw edges to{" "}
-            <span className="font-medium text-gray-700">both HEI and TESDA centers</span>{" "}
-            because TESDA centers can deploy their programs directly to nearby Grade 12
-            students -- a school can only offer TESDA courses if a center is within reach.
-            Those two sets of edges are always visible regardless of which pathway you have
-            selected.
-          </p>
-          <p>
-            We only check that a TESDA center{" "}
-            <span className="font-medium text-gray-700">offers assessment</span>, not that it
-            assesses the qualification the learner trained for. So the tech-voc numbers are{" "}
-            <span className="font-medium text-gray-700">optimistic</span>.
-          </p>
+          <div className="border-l-2 border-slate-200 pl-2.5 space-y-2">
+            <p>
+              Each <span className="font-medium text-gray-700">step</span> has to be within{" "}
+              {thresholdKm} km, but the steps add up. Four of them can still leave a learner a
+              long way from home.
+            </p>
+            <p>
+              The <span className="font-medium text-gray-700">verdict</span> is calculated across
+              the whole country, so it's right no matter which area you loaded. The{" "}
+              <span className="font-medium text-gray-700">lines</span> aren't: they can only
+              connect institutions in your current selection, so a dot near the edge may have
+              neighbors you can't see.
+            </p>
+            <p>
+              Senior high schools draw edges to both HEI and TESDA centers because TESDA centers
+              can deploy their programs to nearby Grade 12 students -- a school can only offer
+              TESDA courses if a center is within reach. Those edges are always visible regardless
+              of which pathway you have selected.
+            </p>
+            <p>
+              We only check that a TESDA center{" "}
+              <span className="font-medium text-gray-700">offers assessment</span>, not that it
+              assesses the qualification the learner trained for. So the tech-voc numbers are{" "}
+              <span className="font-medium text-gray-700">optimistic</span>.
+            </p>
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }
@@ -162,8 +153,8 @@ export default function NetworkLegend(props) {
   return (
     <div className="absolute bottom-3 left-3 z-20 flex flex-col justify-end pointer-events-none">
       {/* Width pinned in both states: the collapsed body still drives the box's intrinsic
-          width, so a shrink-to-fit shell would size the "collapsed" pill to the widest
-          caveat line. (Same trap as the map legend.) */}
+          width, so a shrink-to-fit shell would size the "collapsed" pill to the widest line.
+          (Same trap as the map legend.) */}
       <div className="w-[310px] bg-white/95 backdrop-blur shadow rounded-lg overflow-hidden">
         <button
           onClick={() => setOpen((v) => !v)}
