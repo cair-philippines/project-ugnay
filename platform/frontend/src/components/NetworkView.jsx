@@ -52,6 +52,24 @@ const MORPH_MS = 430; // …and folding back down onto it
 const easeInOut = (t) => (t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2);
 const clamp01 = (t) => (t < 0 ? 0 : t > 1 ? 1 : t);
 
+// Filled arrowhead pointing from (x1,y1) toward (x2,y2). tipOffset keeps the point clear
+// of the destination node's body; size controls arrow length and spread.
+function drawArrowHead(ctx, x1, y1, x2, y2, tipOffset, size) {
+  const dx = x2 - x1, dy = y2 - y1;
+  const len = Math.sqrt(dx * dx + dy * dy);
+  if (len < tipOffset + size) return; // edge too short — arrowhead would overlap the source
+  const ux = dx / len, uy = dy / len;
+  const tipX = x2 - ux * tipOffset;
+  const tipY = y2 - uy * tipOffset;
+  const baseX = tipX - ux * size;
+  const baseY = tipY - uy * size;
+  const hw = size * 0.5; // half-width of the arrow base
+  ctx.moveTo(tipX, tipY);
+  ctx.lineTo(baseX - uy * hw, baseY + ux * hw);
+  ctx.lineTo(baseX + uy * hw, baseY - ux * hw);
+  ctx.closePath();
+}
+
 function drawShape(ctx, shape, x, y, r) {
   ctx.beginPath();
   if (shape === "square") {
@@ -87,6 +105,7 @@ export default function NetworkView({
   onToggleVerdict,
   selectedNode,
   onNodeClick,
+  chainHighlightActive,
   isMobile,
   // The map is still mounted underneath. `projectNode` is its live projection, which is what
   // lets the graph start life as an exact copy of the map and unfold out of it.
@@ -131,6 +150,26 @@ export default function NetworkView({
 
   const indexOf = useMemo(() => new Map(nodes.map((n, i) => [n.node_id, i])), [nodes]);
 
+  // Forward-reachable set from the selected node: every institution a learner starting here
+  // can reach by following edges outward, recursively. Only live when the user has toggled
+  // the "Highlight chain" button; null otherwise.
+  const chainHighlightIds = useMemo(() => {
+    if (!chainHighlightActive || !selectedNode) return null;
+    const visited = new Set([selectedNode.node_id]);
+    const queue = [selectedNode.node_id];
+    while (queue.length) {
+      const id = queue.shift();
+      for (const e of edges) {
+        if (e.reskilling) continue;
+        if (e.source === id && !visited.has(e.target)) {
+          visited.add(e.target);
+          queue.push(e.target);
+        }
+      }
+    }
+    return visited;
+  }, [chainHighlightActive, selectedNode, edges]);
+
   // EVERYTHING THE DRAW LOOP READS lives here, not in the loop's dependency array.
   //
   // This is not a micro-optimisation, it is the fix for the stutter that made the settle
@@ -153,6 +192,7 @@ export default function NetworkView({
     selectedNode,
     hover,
     stale,
+    chainHighlightIds,
   };
 
   // --- canvas sizing (devicePixelRatio-aware; a blurry graph reads as a broken one) ---
@@ -524,6 +564,29 @@ export default function NetworkView({
       }
       ctx.stroke();
 
+      // Arrowheads: filled triangles at the target end of each progression edge.
+      // Communicates direction (which institution a learner would move TO). Skipped below
+      // k = 0.35 where they'd collapse smaller than the line width they're attached to.
+      // When chain highlight is active, only draw heads for edges inside the chain — heads
+      // pointing at dimmed nodes would read as contradictory.
+      if (k > 0.35) {
+        const arrowSz = Math.max(2.5, Math.min(6, 4.5 * k));
+        const nodeBodyR = 3.8 * Math.max(0.6, Math.min(k, 1.8));
+        const tipOff = nodeBodyR + arrowSz * 0.6;
+        ctx.fillStyle = filtering ? EDGE_MUTED : EDGE;
+        ctx.globalAlpha = intro;
+        ctx.beginPath();
+        for (const e of es) {
+          if (e.reskilling) continue;
+          const a = idx.get(e.source), b = idx.get(e.target);
+          if (a === undefined || b === undefined) continue;
+          if (s.chainHighlightIds &&
+              (!s.chainHighlightIds.has(e.source) || !s.chainHighlightIds.has(e.target))) continue;
+          drawArrowHead(ctx, X(a), Y(a), X(b), Y(b), tipOff, arrowSz);
+        }
+        ctx.fill();
+      }
+
       if (s.showReskilling) {
         ctx.save();
         ctx.setLineDash([4, 3]);
@@ -562,7 +625,8 @@ export default function NetworkView({
             ? s.sectorColors[fk]
             : NEUTRAL_FILL;
 
-        ctx.globalAlpha = intro * (filtering ? DIM_ALPHA : coloured ? 0.95 : 0.8);
+        const outOfChain = s.chainHighlightIds && !s.chainHighlightIds.has(ns[i].node_id);
+        ctx.globalAlpha = intro * (outOfChain ? DIM_ALPHA : filtering ? DIM_ALPHA : coloured ? 0.95 : 0.8);
         ctx.fillStyle = fill;
         drawShape(ctx, s.nodeShapes[fk] || "circle", x, y, (coloured ? 3.4 : 3) * zoom);
         ctx.fill();
@@ -581,14 +645,16 @@ export default function NetworkView({
             if (x < -20 || y < -20 || x > size.w + 20 || y > size.h + 20) continue;
             const fk = fillKey(ns[i]);
             const r = 4.2 * zoom;
+            const chainAlpha = s.chainHighlightIds && !s.chainHighlightIds.has(ns[i].node_id)
+              ? DIM_ALPHA : 1;
 
-            ctx.globalAlpha = intro * 0.3;
+            ctx.globalAlpha = intro * 0.3 * chainAlpha;
             ctx.fillStyle = col;
             ctx.beginPath();
             ctx.arc(x, y, r + 3.5, 0, Math.PI * 2);
             ctx.fill();
 
-            ctx.globalAlpha = intro;
+            ctx.globalAlpha = intro * chainAlpha;
             ctx.fillStyle = s.netFills.has(fk) ? s.sectorColors[fk] : NEUTRAL_FILL;
             drawShape(ctx, s.nodeShapes[fk] || "circle", x, y, r);
             ctx.fill();

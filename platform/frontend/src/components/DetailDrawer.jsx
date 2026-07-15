@@ -133,6 +133,8 @@ export default function DetailDrawer({
   isMobile = false,
   view = "map",
   onShowOnMap,
+  onHighlightChain,
+  chainHighlightActive = false,
 }) {
   const hasStats = stats && node;
 
@@ -190,21 +192,47 @@ export default function DetailDrawer({
               nothing SAID so, and an invisible effect is not a feature.)
               It carries help text because it moves you somewhere: a button that changes the
               whole view without warning is a button people learn not to press. */}
-          {node && view === "network" && onShowOnMap && (
-            <div className="mt-3">
-              <button
-                onClick={onShowOnMap}
-                data-testid="show-on-map"
-                className="w-full flex items-center justify-center gap-1.5 rounded-md bg-slate-800 px-3 py-2 text-xs font-medium text-white transition-colors hover:bg-slate-900"
-              >
-                Show on the map
-                <span aria-hidden="true">→</span>
-              </button>
-              <p className="mt-1 text-[10px] leading-snug text-gray-400">
-                Switches to the map and zooms in on this institution. It stays selected, so its
-                connections are already drawn when you get there. Use “Network” in the header to
-                come back.
-              </p>
+          {node && view === "network" && (onShowOnMap || onHighlightChain) && (
+            <div className="mt-3 space-y-2">
+              {onHighlightChain && (
+                <button
+                  onClick={onHighlightChain}
+                  data-testid="highlight-chain"
+                  aria-pressed={chainHighlightActive}
+                  className={`w-full flex items-center justify-center gap-1.5 rounded-md px-3 py-2 text-xs font-medium transition-colors ${
+                    chainHighlightActive
+                      ? "bg-cyan-600 text-white hover:bg-cyan-700"
+                      : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+                  }`}
+                >
+                  {chainHighlightActive ? "Clear highlight" : "Highlight chain"}
+                  {!chainHighlightActive && <span aria-hidden="true">↓</span>}
+                </button>
+              )}
+              {onHighlightChain && (
+                <p className="text-[10px] leading-snug text-gray-400">
+                  {chainHighlightActive
+                    ? "Showing institutions reachable from here. Click again to clear."
+                    : "Dims all nodes not reachable from this institution along the current pathway."}
+                </p>
+              )}
+              {onShowOnMap && (
+                <button
+                  onClick={onShowOnMap}
+                  data-testid="show-on-map"
+                  className="w-full flex items-center justify-center gap-1.5 rounded-md bg-slate-800 px-3 py-2 text-xs font-medium text-white transition-colors hover:bg-slate-900"
+                >
+                  Show on the map
+                  <span aria-hidden="true">→</span>
+                </button>
+              )}
+              {onShowOnMap && (
+                <p className="text-[10px] leading-snug text-gray-400">
+                  Switches to the map and zooms in on this institution. It stays selected, so its
+                  connections are already drawn when you get there. Use "Network" in the header to
+                  come back.
+                </p>
+              )}
             </div>
           )}
 

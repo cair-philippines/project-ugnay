@@ -136,6 +136,13 @@ export default function App() {
   const [netFills, setNetFills] = useState(() => new Set());
   const [netVerdicts, setNetVerdicts] = useState(() => new Set());
 
+  // Chain highlight: dims every node NOT forward-reachable from the selected node.
+  // Resets when the drawer closes (no node selected) so it doesn't silently persist.
+  const [chainHighlightActive, setChainHighlightActive] = useState(false);
+  useEffect(() => {
+    if (!selectedNode) setChainHighlightActive(false);
+  }, [selectedNode]);
+
   // NetworkView outlives `view === "network"` by one animation: on the way out it folds the
   // graph back down onto the map's pins, and it cannot do that after it has been unmounted.
   const [netMounted, setNetMounted] = useState(false);
@@ -670,6 +677,7 @@ export default function App() {
                 onToggleVerdict={handleToggleVerdict}
                 selectedNode={selectedNode}
                 onNodeClick={setSelectedNode}
+                chainHighlightActive={chainHighlightActive}
                 isMobile={isMobile}
                 projectNode={projectNode}
                 exiting={netExiting}
@@ -723,6 +731,8 @@ export default function App() {
             isMobile={isMobile}
             view={view}
             onShowOnMap={handleShowOnMap}
+            chainHighlightActive={chainHighlightActive}
+            onHighlightChain={() => setChainHighlightActive((v) => !v)}
           />
       </div>
 

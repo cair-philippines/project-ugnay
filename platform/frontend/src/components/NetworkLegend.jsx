@@ -27,7 +27,15 @@ function SectionLabel({ children, className = "" }) {
 const VERDICT_BLURB = {
   cut: (km) => (
     <>
-      <span className="font-medium">Cut:</span> no next step at all within {km} km.
+      <span className="font-medium">Cut:</span> no next step at all within {km} km, and no
+      TESDA center reachable either.
+    </>
+  ),
+  partial: (km) => (
+    <>
+      <span className="font-medium">Alternative pathway:</span> no higher-ed within {km} km,
+      but a TESDA training center is reachable. Tech-voc is an option; college is not.
+      Academic pathway only.
     </>
   ),
   deadend: (km, ends) => (
@@ -127,6 +135,12 @@ export function NetworkLegendBody({ sectorColors, nodeShapes, pathway, threshold
             <span className="font-medium text-gray-700">lines</span> aren’t: they can only
             connect institutions in your current selection, so a dot near the edge may have
             neighbors you can’t see.
+          </p>
+          <p>
+            Senior high schools draw edges to{" "}
+            <span className="font-medium text-gray-700">both HEI and TESDA centers</span>{" "}
+            because Grade 12 students can elect tech-voc instead of college. Those two sets of
+            edges are always visible regardless of which pathway you have selected.
           </p>
           <p>
             We only check that a TESDA center{" "}

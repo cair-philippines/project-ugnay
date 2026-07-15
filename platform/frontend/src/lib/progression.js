@@ -99,9 +99,12 @@ export function progressionEdges(nodes, accessIndex, thresholdKm, pathway) {
         if (!destTokens.has(next)) continue;
         const key = `${level}>${next}`;
         const reskilling = key === RESKILLING;
-        // Reskilling edges are drawn (higher-ed graduates really do take TESDA courses)
-        // but they belong to NO pathway, so they never lay track a chain could run on.
-        if (!reskilling && !steps.has(next)) continue;
+        // SHS can branch to TESDA training as an alternative to HEI — Grade 12 students may
+        // elect tech-voc instead of college. Draw this edge in both pathways so the branch
+        // is always visible regardless of which lens the user has active.
+        const shsBranch = key === "shs>tesda_training";
+        // Reskilling edges belong to NO pathway; SHS branch belongs to both.
+        if (!reskilling && !shsBranch && !steps.has(next)) continue;
         edges.push({
           source: n.node_id,
           target: destId,
@@ -155,7 +158,19 @@ export function chainStatus(node, pathway, thresholdKm, nearestIndex) {
 
   const minKm = node[`${pathway}_min_km`] ?? 0;
   if (minKm > 0 && minKm <= thresholdKm) return "complete";
-  return hasNextStep(node, pathway, thresholdKm, nearestIndex) ? "deadend" : "cut";
+  const hasNext = hasNextStep(node, pathway, thresholdKm, nearestIndex);
+  // An SHS with no HEI nearby is "cut" on the academic pathway — but if a TESDA training
+  // center is reachable, the tech-voc door is open. Surface that as "partial" rather than
+  // plain "cut", so policymakers can distinguish "no options at all" from "alternative only".
+  if (!hasNext && pathway === "academic") {
+    const own = tokensOf(node);
+    if (own.has("shs")) {
+      const near = nearestIndex[node.node_id] || {};
+      const tesdaKm = near["tesda_training"];
+      if (tesdaKm != null && tesdaKm <= thresholdKm) return "partial";
+    }
+  }
+  return hasNext ? "deadend" : "cut";
 }
 
 // The verdict is a HIGHLIGHT, not a fill.
@@ -172,18 +187,19 @@ export function chainStatus(node, pathway, thresholdKm, nearestIndex) {
 // deliberately bland, and the filters are how you interrogate it.
 export const STATUS_STYLE = {
   cut: { color: "#DC2626", label: "Cut" },
+  partial: { color: "#0891B2", label: "Alternative pathway" },
   deadend: { color: "#F59E0B", label: "Dead-end chain" },
   complete: { color: "#059669", label: "Complete" },
   na: { color: "#CBD5E1", label: "Not on this pathway" },
   unknown: { color: "#7C3AED", label: "No verdict in this tile" },
 };
 
-// The three the user can toggle. `na` is not a failure and `unknown` is a build error — both
+// The four the user can toggle. `na` is not a failure and `unknown` is a build error — both
 // are reported in the readout, neither is something you ask the graph to show you.
-export const VERDICTS = ["cut", "deadend", "complete"];
+export const VERDICTS = ["cut", "partial", "deadend", "complete"];
 
 // Painted worst-last, so a lit red node is never buried under the healthy mass around it.
-export const STATUS_ORDER = ["na", "complete", "deadend", "cut", "unknown"];
+export const STATUS_ORDER = ["na", "complete", "deadend", "partial", "cut", "unknown"];
 
 // The bland baseline: what every node looks like before the user has asked anything. Bland is
 // not the same as invisible — the shape of the graph (the clusters, and the specks with
@@ -192,7 +208,7 @@ export const STATUS_ORDER = ["na", "complete", "deadend", "cut", "unknown"];
 export const NEUTRAL_FILL = "#94A3B8";
 
 export function statusCounts(nodes, pathway, thresholdKm, nearestIndex) {
-  const counts = { complete: 0, deadend: 0, cut: 0, na: 0, unknown: 0 };
+  const counts = { complete: 0, partial: 0, deadend: 0, cut: 0, na: 0, unknown: 0 };
   for (const n of nodes) counts[chainStatus(n, pathway, thresholdKm, nearestIndex)] += 1;
   return counts;
 }
