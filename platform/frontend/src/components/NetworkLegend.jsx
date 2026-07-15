@@ -139,8 +139,10 @@ export function NetworkLegendBody({ sectorColors, nodeShapes, pathway, threshold
           <p>
             Senior high schools draw edges to{" "}
             <span className="font-medium text-gray-700">both HEI and TESDA centers</span>{" "}
-            because Grade 12 students can elect tech-voc instead of college. Those two sets of
-            edges are always visible regardless of which pathway you have selected.
+            because TESDA centers can deploy their programs directly to nearby Grade 12
+            students -- a school can only offer TESDA courses if a center is within reach.
+            Those two sets of edges are always visible regardless of which pathway you have
+            selected.
           </p>
           <p>
             We only check that a TESDA center{" "}

@@ -45,6 +45,7 @@ const EDGE_MUTED = "rgba(100,116,139,0.16)";
 const EDGE_RESKILL = "rgba(168,85,247,0.35)";
 
 const DIM_ALPHA = 0.28; // a dimmed node: pushed back, never deleted
+const CHAIN_DIM_ALPHA = 0.05; // out-of-chain nodes: nearly invisible so the chain pops
 
 const INTRO_MS = 550; // the graph fading up over the map it grew out of
 const MORPH_MS = 430; // …and folding back down onto it
@@ -626,7 +627,7 @@ export default function NetworkView({
             : NEUTRAL_FILL;
 
         const outOfChain = s.chainHighlightIds && !s.chainHighlightIds.has(ns[i].node_id);
-        ctx.globalAlpha = intro * (outOfChain ? DIM_ALPHA : filtering ? DIM_ALPHA : coloured ? 0.95 : 0.8);
+        ctx.globalAlpha = intro * (outOfChain ? CHAIN_DIM_ALPHA : filtering ? DIM_ALPHA : coloured ? 0.95 : 0.8);
         ctx.fillStyle = fill;
         drawShape(ctx, s.nodeShapes[fk] || "circle", x, y, (coloured ? 3.4 : 3) * zoom);
         ctx.fill();
@@ -646,7 +647,7 @@ export default function NetworkView({
             const fk = fillKey(ns[i]);
             const r = 4.2 * zoom;
             const chainAlpha = s.chainHighlightIds && !s.chainHighlightIds.has(ns[i].node_id)
-              ? DIM_ALPHA : 1;
+              ? CHAIN_DIM_ALPHA : 1;
 
             ctx.globalAlpha = intro * 0.3 * chainAlpha;
             ctx.fillStyle = col;
