@@ -516,16 +516,16 @@ export default function NetworkView({
           tx: m.fromView.tx + (0 - m.fromView.tx) * e,
           ty: m.fromView.ty + (0 - m.fromView.ty) * e,
         };
-      } else if (!userMovedRef.current && framesRef.current % 8 === 0) {
+      } else if (!userMovedRef.current && framesRef.current % 4 === 0) {
         // Ease the camera toward the fit rather than snapping to it once at the end: the
         // graph is expanding while you watch, and a single jump when it stops reads as a bug.
         const t = fitTarget();
         if (t) {
           const v = viewRef.current;
           viewRef.current = {
-            k: v.k + (t.k - v.k) * 0.12,
-            tx: v.tx + (t.tx - v.tx) * 0.12,
-            ty: v.ty + (t.ty - v.ty) * 0.12,
+            k: v.k + (t.k - v.k) * 0.2,
+            tx: v.tx + (t.tx - v.tx) * 0.2,
+            ty: v.ty + (t.ty - v.ty) * 0.2,
           };
         }
       }

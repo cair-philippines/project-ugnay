@@ -98,7 +98,7 @@ self.onmessage = (e) => {
     // infinity instead of settling into a readable halo around the connected core.
     .force("x", forceX(width / 2).strength(0.015))
     .force("y", forceY(height / 2).strength(0.015))
-    .alphaDecay(0.02)
+    .alphaDecay(0.028)
     .alpha(alpha ?? 1)
     .stop();
 
