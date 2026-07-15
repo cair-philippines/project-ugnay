@@ -16,7 +16,30 @@ details: `documentation/deployment.md`.
 
 ---
 
-## v0.4.6 — 2026-07-15 (latest) — Revert filter fade; restore instant filter behavior
+## v0.4.7 — 2026-07-15 (latest) — Hover popup corner flash: true root cause found and fixed
+
+### Fixed
+- **Hover popup flashed at the top-left corner on every re-hover** (regression surfaced by
+  v0.4.5's animation scoping; the mechanism predates it). Per-frame measurement finally
+  identified the real culprit that every earlier fix had worked around: the `ugnay-pop-in`
+  keyframes animate `transform`, and **a CSS animation's transform overrides the inline
+  `transform` MapLibre uses to position the popup container**. For the animation's full
+  160ms, `translateY(4px) → translateY(0)` *replaced* the positioning transform, teleporting
+  the card to the container origin (top-left corner) while it faded in, then snapping it to
+  the node when the animation ended. v0.4.5's `:not(--off)` scoping made the animation
+  restart on every re-hover after a hide — so the corner flash returned on ordinary hovering.
+  The earlier "MapLibre positions popups late" theory was wrong: the measured
+  `matrix(1,0,0,1,0,3)` was our own keyframe mid-flight.
+  - Fix: the pop-in animation now targets `.maplibregl-popup-content` (which carries no
+    positioning transform) instead of the popup container. Never animate `transform` on
+    `.maplibregl-popup` itself.
+  - E2E: T15.8 extended with a leave-wait-re-hover step — the original quick sweep never let
+    the 90ms hover-off grace expire, so `--off` was never applied and the animation never
+    restarted, which is why the test kept passing while production flashed.
+
+---
+
+## v0.4.6 — 2026-07-15 — Revert filter fade; restore instant filter behavior
 
 ### Changed
 - **Sector and subcategory filter toggles are now instant again (no fade).** The per-sector

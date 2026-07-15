@@ -78,11 +78,20 @@ body {
   opacity: 0;
 }
 
-/* Ease the hover card in rather than snapping it into place. Scoped to :not(--off) so the
-   animation does not run while the popup is hidden — CSS animations override cascade rules,
-   meaning the keyframe's opacity: 1 would win over --off's opacity: 0 for 160ms and cause a
-   flash at (0,0) every time the popup mounts. Only run when actually becoming visible. */
-.ugnay-popup:not(.ugnay-popup--off) {
+/* Ease the hover card in rather than snapping it into place.
+
+   THE ANIMATION MUST TARGET THE CONTENT, NEVER `.ugnay-popup` ITSELF. MapLibre positions the
+   popup with an inline `transform` on that container, and a CSS animation's transform OVERRIDES
+   inline style for as long as it runs — so a keyframe with `translateY(4px)` doesn't nudge the
+   card, it REPLACES the positioning transform and teleports the card to the container origin
+   (the top-left corner) for the animation's full 160ms, snapping back only when it ends. That —
+   not deferred positioning — was the corner flash all along, and scoping the animation to
+   :not(--off) made it replay on every re-hover. The content div carries no positioning
+   transform, so it is safe to animate.
+
+   Scoped to :not(--off) so the animation only runs when the card is actually becoming visible —
+   CSS animations also override the cascade's opacity, so unscoped it would defeat --off. */
+.ugnay-popup:not(.ugnay-popup--off) .maplibregl-popup-content {
   animation: ugnay-pop-in 160ms ease-out;
 }
 

@@ -1534,6 +1534,21 @@ const sliderFor = (p, label) =>
         await n.waitForTimeout(160);
       }
 
+      // LEAVE, WAIT, RE-HOVER. The quick sweep above never lets the 90ms hover-off grace
+      // expire, so the popup never gets --off and re-hovering never restarts the pop-in
+      // animation — which is precisely the path that regressed in v0.4.5/v0.4.6: the pop-in
+      // keyframes animated `transform`, and an animation's transform overrides the inline
+      // transform MapLibre positions the popup with, teleporting the card to the top-left
+      // corner for the animation's 160ms on EVERY re-hover after a hide. Park on bare map
+      // long enough for the card to fully hide, then hover again; the corner counter is
+      // still running and must stay at zero.
+      const [ax, ay] = pts[0];
+      const [bx, by] = pts[1];
+      await n.mouse.move(Math.round((ax + bx) / 2) + 60, Math.round((ay + by) / 2) + 60, { steps: 4 });
+      await n.waitForTimeout(450);
+      await n.mouse.move(bx, by, { steps: 5 });
+      await n.waitForTimeout(400);
+
       const s = await n.evaluate(() => ({
         adds: window.__popupAdds, corner: window.__popupCorner,
         pre: window.__popupPre, maxOp: window.__popupMaxOpacity,

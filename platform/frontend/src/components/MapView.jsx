@@ -594,20 +594,18 @@ export default function MapView({
   // THE POPUP IS MOUNTED ONCE AND ONLY EVER MOVED. It is never created on hover.
   //
   // It used to be `{showHover && <Popup/>}`, so every node built a brand-new MapLibre popup.
-  // A freshly added popup is NOT positioned in the same frame it is added: MapLibre defers
-  // popup DOM writes onto its render-task queue, so for the first frame or several the element
-  // sits at its untransformed origin — the container's TOP-LEFT CORNER — and only then jumps
-  // to the node. Hovering across a row of schools flashed a white card up there over and over.
+  // The corner flash that motivated this was long blamed on MapLibre positioning the popup
+  // late; per-frame measurement (2026-07-15) showed the real culprit was our own pop-in CSS
+  // ANIMATION: MapLibre positions the popup with an inline `transform` on its container, and
+  // an animation's transform keyframes OVERRIDE inline style while they run — `translateY(4px)`
+  // didn't nudge the card, it replaced the positioning transform and pinned the card at the
+  // container origin (top-left) for the animation's full 160ms. That is fixed at the source in
+  // index.css (the animation now targets .maplibregl-popup-content, which carries no
+  // positioning transform — never animate transform on .maplibregl-popup itself).
   //
-  // Delaying the reveal by a frame did NOT fix it (measured: `transform: matrix(1,0,0,1,0,3)`
-  // — i.e. still unpositioned — six frames into the fade). Any time-based reveal is racing a
-  // queue whose flush we do not control.
-  //
-  // So don't race it. The popup mounts as soon as the map has ANY institution, parked on one
-  // and invisible; its unpositioned frames happen there, at load, where nothing is on screen to
-  // flash. From then on hovering only ever calls setLngLat, which moves an already-positioned
-  // element from one valid place to another. There is no frame at which it can be in the corner
-  // and visible, because there is no frame at which it is created and visible.
+  // Mount-once is still the right shape on top of that: a persistent popup means hover only
+  // ever calls setLngLat on an already-positioned element, and React never pays for a MapLibre
+  // popup teardown/rebuild between every pair of dots.
   useEffect(() => {
     if (showHover) setPopupNode(hoverNode);
   }, [showHover, hoverNode]);
