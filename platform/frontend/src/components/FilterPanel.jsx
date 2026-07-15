@@ -58,9 +58,9 @@ const SECTOR_SWATCHES = [
 ];
 
 const HEADER_SECTORS = [
-  ["basic", "Basic", "bg-blue-500"],
-  ["higher", "Higher", "bg-green-500"],
-  ["techvoc", "Tech-Voc", "bg-purple-500"],
+  ["basic", "Basic", "public"],
+  ["higher", "Higher", "hei_public"],
+  ["techvoc", "Tech-Voc", "tesda"],
 ];
 
 function Swatch({ color, onChange }) {
@@ -508,7 +508,7 @@ export default function FilterPanel({
                       Sectors
                     </div>
                     <div className="flex flex-wrap gap-1.5">
-                      {HEADER_SECTORS.map(([key, label, dot]) => {
+                      {HEADER_SECTORS.map(([key, label, swatchKey]) => {
                         const on = activeSectors.has(key);
                         return (
                           <button
@@ -520,7 +520,10 @@ export default function FilterPanel({
                                 : "bg-white text-gray-400 border-gray-200"
                             }`}
                           >
-                            <span className={`w-2 h-2 rounded-full ${dot} ${on ? "" : "opacity-40"}`} />
+                            <span
+                              className="w-2 h-2 rounded-full"
+                              style={{ backgroundColor: sectorColors[swatchKey], opacity: on ? 1 : 0.4 }}
+                            />
                             {label}
                           </button>
                         );

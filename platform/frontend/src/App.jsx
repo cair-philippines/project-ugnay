@@ -494,10 +494,10 @@ export default function App() {
             {view === "map" && (
               <div className="flex items-center gap-1.5 ml-2">
                 {[
-                  ["basic", "Basic", "bg-blue-500"],
-                  ["higher", "Higher", "bg-green-500"],
-                  ["techvoc", "Tech-Voc", "bg-purple-500"],
-                ].map(([key, label, dot]) => {
+                  ["basic", "Basic", "public"],
+                  ["higher", "Higher", "hei_public"],
+                  ["techvoc", "Tech-Voc", "tesda"],
+                ].map(([key, label, swatchKey]) => {
                   const on = activeSectors.has(key);
                   return (
                     <button
@@ -507,7 +507,10 @@ export default function App() {
                         on ? "bg-gray-800 text-white border-transparent" : "bg-white text-gray-400 border-gray-200"
                       }`}
                     >
-                      <span className={`w-2 h-2 rounded-full ${dot} ${on ? "" : "opacity-40"}`} />
+                      <span
+                        className="w-2 h-2 rounded-full"
+                        style={{ backgroundColor: sectorColors[swatchKey], opacity: on ? 1 : 0.4 }}
+                      />
                       {label}
                     </button>
                   );
