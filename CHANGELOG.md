@@ -16,7 +16,34 @@ details: `documentation/deployment.md`.
 
 ---
 
-## v0.4.3 — 2026-07-15 (latest) — Popup flash fix, filter fade transitions
+## v0.4.4 — 2026-07-15 (latest) — Popup flash fix (final), per-sector filter fade
+
+### Fixed
+- **Hover popup no longer flashes at the top-left corner on area changes.** The previous fix
+  (v0.4.3) eliminated the post-reveal unmount cycle but left an earlier one: when a new area
+  is selected `nodes` becomes empty, `popupAnchor` returned `null`, and the popup unmounted.
+  When tiles arrived it remounted — and a freshly mounted MapLibre popup starts at (0,0) for
+  one frame. The fix: `lastAnchorRef` stores the last valid anchor across area transitions.
+  Once the popup has been parked on any node it never returns `null`, so the popup is mounted
+  exactly once per session and only ever moved thereafter.
+
+### Changed
+- **Filter fade is now per-sector, and nodes being removed participate in the fade-out.**
+  The previous implementation (v0.4.3) had two problems: (1) any filter change faded ALL nodes
+  globally, including sectors that were not touched; (2) the source updated immediately so
+  nodes being hidden had already left the GeoJSON by the time the fade started — only retained
+  nodes blinked. The new approach:
+  - Three independent fade phases (`basicPhase`, `higherPhase`, `techvocPhase`), one per
+    node layer. Toggling Basic Education does not disturb Higher Education or Tech-Voc opacity.
+  - `displayNodes` — a source copy that lags `nodes` by 120 ms — keeps the departing nodes
+    visible and fading rather than popped. At the midpoint the source swaps to the new set
+    and the survivors fade back in over 250 ms.
+  - Applies to both sector toggles (top bar / mobile sheet) and subcategory toggles in the
+    Layers & Filters panel. Area reveals (450 ms) are unaffected.
+
+---
+
+## v0.4.3 — 2026-07-15 — Popup flash fix (partial), global filter fade (superseded)
 
 ### Fixed
 - **Hover popup no longer flashes at the top-left on "Explore map".** Root cause: the popup
