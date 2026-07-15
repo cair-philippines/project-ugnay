@@ -432,8 +432,23 @@ export default function App() {
           }`}
       >
         <div className="flex items-center gap-2 min-w-0">
+          {/* Agency logos — desktop only; mobile header is already full. DepEd always left
+              of ECAIR per brand rule. Title on ECAIR carries the "developed by" attribution
+              for hover-aware users without cluttering the bar. */}
+          <div className="hidden sm:flex items-center gap-2 shrink-0">
+            <img src="/logos/deped.svg" alt="Department of Education" className="h-7 w-auto" />
+            <img
+              src="/logos/ecair.png"
+              alt="Education Center for AI Research Philippines"
+              title="This platform is developed by the Education Center for AI Research."
+              className="h-7 w-auto"
+            />
+          </div>
+          <div className="hidden sm:block w-px h-5 bg-gray-200 shrink-0" />
           <span className="text-lg font-bold text-blue-600 shrink-0">Ugnay</span>
-          <span className="text-xs text-gray-400 hidden sm:inline">Education Institutions Map</span>
+          {/* Subtitle hidden at sm–lg to give logos the space they displace; visible again
+              on large screens where there is room for both. */}
+          <span className="text-xs text-gray-400 hidden lg:inline">Education Institutions Map</span>
         </div>
 
         <button

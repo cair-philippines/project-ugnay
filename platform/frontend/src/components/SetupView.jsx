@@ -53,6 +53,21 @@ function Preamble({ compact = false }) {
     <div
       className={`flex flex-col justify-center h-full ${pad} text-white bg-gradient-to-br from-slate-800 via-slate-800 to-blue-900`}
     >
+      {/* Agency logos — white pill so the colored logo fills display correctly on dark */}
+      <div className={`flex items-center gap-3 bg-white rounded-xl w-fit ${compact ? "mb-3 px-2.5 py-1.5" : "mb-4 px-3 py-2"}`}>
+        <img
+          src="/logos/deped.svg"
+          alt="Department of Education"
+          className={compact ? "h-6 w-auto" : "h-8 w-auto"}
+        />
+        <div className={`w-px self-stretch my-0.5 bg-gray-300`} />
+        <img
+          src="/logos/ecair.png"
+          alt="Education Center for AI Research Philippines"
+          className={compact ? "h-6 w-auto" : "h-8 w-auto"}
+        />
+      </div>
+
       <div className="flex items-baseline gap-2.5 flex-wrap">
         <span className={`${title} font-bold tracking-tight`}>Ugnay</span>
         <span className="text-xs sm:text-sm text-blue-200/70">Education Institutions Map</span>
@@ -135,6 +150,9 @@ function Preamble({ compact = false }) {
           Distances are <span className="text-blue-100/80">road distances</span>, not straight
           lines. This map shows what’s{" "}
           <span className="text-blue-100/80">within reach</span>, not who actually enrolls.
+        </p>
+        <p className={`${compact ? "mt-2" : "mt-3"} text-[10px] text-blue-200/35`}>
+          This platform is developed by the Education Center for AI Research.
         </p>
       </div>
     </div>
