@@ -47,6 +47,11 @@ let run = 0; // bumped on every new layout, so a stale scheduled frame can bail 
 // longer to finish, rather than staying "fast" by dropping every frame in between.
 const FRAME_BUDGET_MS = 11;
 const MAX_TICKS_PER_FRAME = 6;
+// During the high-alpha phase forces are strongest and nodes move the most per tick.
+// Running 6 ticks in one frame during that phase causes visible position jumps between
+// paints. Cap to 1 until alpha falls below this threshold, then open the throttle.
+const ALPHA_SMOOTH_THRESHOLD = 0.35;
+const MAX_TICKS_HIGH_ALPHA = 1;
 
 self.onmessage = (e) => {
   const { type, nodes, links, width, height, seed, alpha } = e.data;
@@ -116,13 +121,14 @@ self.onmessage = (e) => {
 
     const t0 = performance.now();
     let ticks = 0;
+    const tickCap = sim.alpha() > ALPHA_SMOOTH_THRESHOLD ? MAX_TICKS_HIGH_ALPHA : MAX_TICKS_PER_FRAME;
     do {
       sim.tick();
       done += 1;
       ticks += 1;
     } while (
       done < total &&
-      ticks < MAX_TICKS_PER_FRAME &&
+      ticks < tickCap &&
       performance.now() - t0 < FRAME_BUDGET_MS
     );
 

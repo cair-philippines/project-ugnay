@@ -38,8 +38,8 @@ export function fillKey(n) {
 export const SECTOR_LABEL = {
   public: "DepEd Public",
   private: "DepEd Private",
-  hei_public: "Higher Ed (Public)",
-  hei_private: "Higher Ed (Private)",
+  hei_public: "CHED (Public)",
+  hei_private: "CHED (Private)",
   tesda: "TESDA",
 };
 

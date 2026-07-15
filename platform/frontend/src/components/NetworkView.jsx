@@ -124,6 +124,7 @@ export default function NetworkView({
   const morphRef = useRef(null);
   const userMovedRef = useRef(false);
   const framesRef = useRef(0);
+  const cameraEaseRef = useRef(null); // set when settling finishes; drives the ease-to-fit
 
   const [hover, setHover] = useState(null); // { node, sx, sy }
   const [size, setSize] = useState({ w: 0, h: 0 });
@@ -329,6 +330,22 @@ export default function NetworkView({
     posRef.current = seed.slice();
     if (cold) introRef.current = performance.now();
 
+    // On a cold start, fix the camera at a conservative zoom-out from the seed's fit so
+    // the graph can settle within a stable frame. 1.5× gives enough room for the forces
+    // to spread nodes without them going off-screen. The camera only moves again when
+    // settling finishes (see cameraEaseRef below).
+    cameraEaseRef.current = null;
+    if (cold) {
+      const seedFit = fitTarget();
+      if (seedFit) {
+        const dataCx = (size.w / 2 - seedFit.tx) / seedFit.k;
+        const dataCy = (size.h / 2 - seedFit.ty) / seedFit.k;
+        const k0 = Math.max(0.05, seedFit.k / 1.5);
+        viewRef.current = { k: k0, tx: size.w / 2 - dataCx * k0, ty: size.h / 2 - dataCy * k0 };
+        userMovedRef.current = false;
+      }
+    }
+
     const worker = new ForceWorker();
     workerRef.current = worker;
     setSettling(true);
@@ -338,7 +355,22 @@ export default function NetworkView({
       if (type !== "tick") return;
       posRef.current = positions;
       if (barRef.current) barRef.current.style.width = `${Math.round(p * 100)}%`;
-      if (done) setSettling(false);
+      if (done) {
+        setSettling(false);
+        // Ease the camera to fit the final settled layout. If the user panned/zoomed
+        // during settling, respect that and skip the ease.
+        if (!userMovedRef.current) {
+          const finalFit = fitTarget();
+          if (finalFit) {
+            cameraEaseRef.current = {
+              from: { ...viewRef.current },
+              to: finalFit,
+              t0: performance.now(),
+              dur: 600,
+            };
+          }
+        }
+      }
     };
 
     worker.postMessage({
@@ -516,17 +548,19 @@ export default function NetworkView({
           tx: m.fromView.tx + (0 - m.fromView.tx) * e,
           ty: m.fromView.ty + (0 - m.fromView.ty) * e,
         };
-      } else if (!userMovedRef.current && framesRef.current % 4 === 0) {
-        // Ease the camera toward the fit rather than snapping to it once at the end: the
-        // graph is expanding while you watch, and a single jump when it stops reads as a bug.
-        const t = fitTarget();
-        if (t) {
-          const v = viewRef.current;
+      } else {
+        // Ease to the final fit once settling is done. Camera is held fixed during the
+        // settle itself so the expansion is legible without the camera chasing it.
+        const ease = cameraEaseRef.current;
+        if (ease && !userMovedRef.current) {
+          const et = clamp01((now - ease.t0) / ease.dur);
+          const ef = easeInOut(et);
           viewRef.current = {
-            k: v.k + (t.k - v.k) * 0.2,
-            tx: v.tx + (t.tx - v.tx) * 0.2,
-            ty: v.ty + (t.ty - v.ty) * 0.2,
+            k: ease.from.k + (ease.to.k - ease.from.k) * ef,
+            tx: ease.from.tx + (ease.to.tx - ease.from.tx) * ef,
+            ty: ease.from.ty + (ease.to.ty - ease.from.ty) * ef,
           };
+          if (et >= 1) cameraEaseRef.current = null;
         }
       }
       framesRef.current += 1;

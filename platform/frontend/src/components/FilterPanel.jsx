@@ -52,8 +52,8 @@ const SECTOR_KEYS = ["basic", "higher", "techvoc"];
 const SECTOR_SWATCHES = [
   ["public", "DepEd Public"],
   ["private", "DepEd Private"],
-  ["hei_public", "Higher Ed (Public)"],
-  ["hei_private", "Higher Ed (Private)"],
+  ["hei_public", "CHED (Public)"],
+  ["hei_private", "CHED (Private)"],
   ["tesda", "TESDA"],
 ];
 
@@ -77,9 +77,11 @@ function Swatch({ color, onChange }) {
 
 // Shape picker: the four marks laid out as a row of toggles rather than a <select>, so the
 // choice is made by looking at the shape itself instead of reading its name.
+// Buttons are kept compact (w-5 h-5, gap-px) so the picker fits on the same line as the
+// sector label without wrapping.
 function ShapePicker({ value, color, onChange }) {
   return (
-    <div className="flex items-center gap-0.5 shrink-0">
+    <div className="flex items-center gap-px shrink-0">
       {NODE_SHAPES.map((s) => {
         const on = value === s;
         return (
@@ -89,13 +91,13 @@ function ShapePicker({ value, color, onChange }) {
             onClick={() => onChange(s)}
             title={SHAPE_LABEL[s]}
             aria-pressed={on}
-            className={`w-6 h-6 flex items-center justify-center rounded border transition-colors ${
+            className={`w-5 h-5 flex items-center justify-center rounded border transition-colors ${
               on
                 ? "border-blue-500 bg-blue-50"
                 : "border-transparent hover:border-gray-200 hover:bg-gray-50"
             }`}
           >
-            <ShapeMark shape={s} color={on ? color : "#9CA3AF"} size={12} />
+            <ShapeMark shape={s} color={on ? color : "#9CA3AF"} size={10} />
           </button>
         );
       })}
@@ -699,24 +701,16 @@ export default function FilterPanel({
                   Shape backs up color, so the map still works printed in black and white, and
                   stays readable where two sectors overlap.
                 </p>
-                {/* Two rows per sector, not one. On one row the swatch + label + four
-                    shape toggles need ~280px, and the panel is 256 — so "Higher Ed —
-                    Public" truncated to "Higher Ed — P…". The name of the sector is the
-                    one thing here that must never be guessed at. */}
-                <div className="space-y-2.5">
+                <div className="space-y-2">
                   {SECTOR_SWATCHES.map(([k, label]) => (
-                    <div key={k} className="flex flex-col gap-1">
-                      <div className="flex items-center gap-2 text-xs text-gray-700">
-                        <Swatch color={sectorColors[k]} onChange={(c) => onSectorColor(k, c)} />
-                        <span className="font-medium">{label}</span>
-                      </div>
-                      <div className="pl-8">
-                        <ShapePicker
-                          value={nodeShapes[k]}
-                          color={sectorColors[k]}
-                          onChange={(s) => onSectorShape(k, s)}
-                        />
-                      </div>
+                    <div key={k} className="flex items-center gap-2 text-xs text-gray-700">
+                      <Swatch color={sectorColors[k]} onChange={(c) => onSectorColor(k, c)} />
+                      <span className="font-medium flex-1 min-w-0 truncate">{label}</span>
+                      <ShapePicker
+                        value={nodeShapes[k]}
+                        color={sectorColors[k]}
+                        onChange={(s) => onSectorShape(k, s)}
+                      />
                     </div>
                   ))}
                 </div>
