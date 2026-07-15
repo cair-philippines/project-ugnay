@@ -19,6 +19,12 @@ const INITIAL_VIEW_STATE = {
   bearing: 0,
 };
 
+// Popup park position. The hover popup must NEVER mount at (0,0): a freshly created
+// MapLibre popup starts at the container's top-left for one frame before being positioned.
+// Parking at a valid lat/lon (Philippines center) from the very first render means the popup
+// is always positioned, never at (0,0), even before any node data has loaded.
+const POPUP_PARK = { lon: 122.0, lat: 12.5 };
+
 const EMPTY_FC = { type: "FeatureCollection", features: [] };
 
 // Keep in step with DetailDrawer: `w-72` (18rem) as a right drawer on desktop,
@@ -719,17 +725,16 @@ export default function MapView({
   // Keep it parked on any valid node; visibility is controlled entirely by the --off class.
   // We do NOT gate on `revealed` here: the popup should be parked (at opacity 0, invisible)
   // as early as nodes are available so the reveal animation gets no extra DOM work.
-  // lastAnchorRef: once the popup has been parked on any valid node it NEVER goes back to
-  // null. The popup's first mount at opacity 0 is the one allowed (0,0)-frame; after that
-  // every area change leaves the popup mounted and parked at the last known position (hidden
-  // by --off), so there is no remount and no further corner flash.
-  const lastAnchorRef = useRef(null);
-  const popupAnchor = useMemo(() => {
-    const candidate =
-      popupNode || nodes.find((n) => Number.isFinite(n.lon) && Number.isFinite(n.lat)) || null;
-    if (candidate) lastAnchorRef.current = candidate;
-    return lastAnchorRef.current;
-  }, [popupNode, nodes]);
+  // popupAnchor is ALWAYS a valid lat/lon — it falls back to POPUP_PARK (Philippines center)
+  // when no real node is available. This means the Popup element is mounted from the very
+  // first render, already positioned at a real coordinate, so it is never placed at (0,0).
+  const popupAnchor = useMemo(
+    () =>
+      popupNode ||
+      nodes.find((n) => Number.isFinite(n.lon) && Number.isFinite(n.lat)) ||
+      POPUP_PARK,
+    [popupNode, nodes]
+  );
 
   const popupVisible = showHover && !!popupNode;
 
@@ -905,26 +910,29 @@ export default function MapView({
         />
       </Source>
 
-      {/* Hover: transient card, no close button. Mounted once and then MOVED — never
-          re-created — see the note above `popupAnchor`. */}
-      {popupAnchor && (
-        <Popup
-          longitude={popupAnchor.lon}
-          latitude={popupAnchor.lat}
-          closeButton={false}
-          closeOnClick={false}
-          anchor="bottom"
-          offset={14}
-          maxWidth="none"
-          className={popupClass}
-        >
+      {/* Hover: transient card, mounted from first render and only ever moved — never
+          unmounted. popupAnchor is always a valid lat/lon (falls back to POPUP_PARK), so
+          the Popup element is never created at (0,0). InstitutionCard is only rendered
+          once a real node has been hovered; before that the popup is empty and hidden
+          by --off, so there is nothing to render and no data-shape risk from POPUP_PARK. */}
+      <Popup
+        longitude={popupAnchor.lon}
+        latitude={popupAnchor.lat}
+        closeButton={false}
+        closeOnClick={false}
+        anchor="bottom"
+        offset={14}
+        maxWidth="none"
+        className={popupClass}
+      >
+        {popupNode && (
           <InstitutionCard
-            node={popupAnchor}
+            node={popupNode}
             colors={sectorColors}
-            place={places[popupAnchor.node_id]}
+            place={places[popupNode.node_id]}
           />
-        </Popup>
-      )}
+        )}
+      </Popup>
 
       {/* NOTE: there is deliberately NO pinned popup. Detail for the clicked institution
           lives in the side drawer — a popup anchored to the node always covered part of

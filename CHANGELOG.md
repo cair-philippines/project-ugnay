@@ -16,7 +16,25 @@ details: `documentation/deployment.md`.
 
 ---
 
-## v0.4.4 — 2026-07-15 (latest) — Popup flash fix (final), per-sector filter fade
+## v0.4.5 — 2026-07-15 (latest) — Popup flash fix (definitive)
+
+### Fixed
+- **Hover popup flash eliminated at the root.** Two independent causes, both fixed:
+  1. **CSS animation override**: `.ugnay-popup` had `animation: ugnay-pop-in 160ms ease-out`.
+     CSS animations take precedence over cascade rules, so the animation's `opacity: 0→1`
+     ran even when `.ugnay-popup--off` was present (`opacity: 0`). The popup was invisible
+     after 160ms but was briefly visible at (0,0) during the animation. Fixed by scoping the
+     animation to `.ugnay-popup:not(.ugnay-popup--off)` — it only runs when actually becoming
+     visible, not on silent mounts.
+  2. **First-mount at (0,0)**: The popup used to mount at the top-left corner for one frame
+     before MapLibre positioned it. `POPUP_PARK` (Philippines center, `{ lon: 122.0, lat: 12.5 }`)
+     is now the fallback when no node is available, so `popupAnchor` is always a valid lat/lon
+     from the very first render. The popup is never created at (0,0). `InstitutionCard` is
+     rendered only when `popupNode` is set (a real hover), keeping the fallback lightweight.
+
+---
+
+## v0.4.4 — 2026-07-15 — Popup flash fix (partial), per-sector filter fade
 
 ### Fixed
 - **Hover popup no longer flashes at the top-left corner on area changes.** The previous fix

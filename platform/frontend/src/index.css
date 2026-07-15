@@ -78,8 +78,11 @@ body {
   opacity: 0;
 }
 
-/* Ease the hover card in rather than snapping it into place. */
-.ugnay-popup {
+/* Ease the hover card in rather than snapping it into place. Scoped to :not(--off) so the
+   animation does not run while the popup is hidden — CSS animations override cascade rules,
+   meaning the keyframe's opacity: 1 would win over --off's opacity: 0 for 160ms and cause a
+   flash at (0,0) every time the popup mounts. Only run when actually becoming visible. */
+.ugnay-popup:not(.ugnay-popup--off) {
   animation: ugnay-pop-in 160ms ease-out;
 }
 
