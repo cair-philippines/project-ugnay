@@ -1,0 +1,5 @@
+Touch this file (any content change) and push to trigger a CI deploy without
+changing app code. The deploy workflow only fires on platform/frontend/** and
+the deploy config paths; empty commits and docs-only commits do not deploy.
+
+Last manual redeploy: 2026-07-16
